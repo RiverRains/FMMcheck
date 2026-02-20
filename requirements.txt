@@ -1,0 +1,6 @@
+requests
+openpyxl
+slack_sdk
+tenacity
+python-dotenv
+aiohttp
