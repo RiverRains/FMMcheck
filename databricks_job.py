@@ -328,10 +328,18 @@ async def main_async():
     if not competitions_with_matches:
         logger.error("No whitelisted competitions found or no matches available.")
         return
-        
-    # Output path in DBFS for Databricks or local for testing
-    output_path = os.getenv("OUTPUT_EXCEL_PATH", "football_competitions_fetch.xlsx")
-    
+
+    # Output path: use env if set; on Databricks default to /tmp to avoid [Errno 22] on read-only repo dir
+    output_path = os.getenv("OUTPUT_EXCEL_PATH")
+    if not output_path:
+        if os.getenv("DATABRICKS_RUNTIME_VERSION"):
+            output_path = "/tmp/football_competitions_fetch.xlsx"
+            logger.info(
+                "OUTPUT_EXCEL_PATH not set; using /tmp (ephemeral). For persistent output, set OUTPUT_EXCEL_PATH to e.g. /dbfs/mnt/fmm_data/football_competitions_fetch.xlsx"
+            )
+        else:
+            output_path = "football_competitions_fetch.xlsx"
+
     success = create_excel_file_with_competitions(competitions_with_matches, output_path)
     
     if success:

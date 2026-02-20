@@ -178,6 +178,9 @@ After that, the job will run on schedule with repo code, dependencies, and secre
 - **"Invalid requirement: 'GENIUS_API_KEY={{secrets/...}}'"**  
   The secret reference was added under **Libraries** or **Requirements**. Remove it from there and set it only under the compute **Environment variables** (or use classic compute; see step 5).
 
+- **"Error creating Excel file: [Errno 22] Invalid argument"**  
+  The job is writing to the repo directory (default path), which is often read-only on Databricks. If you did not set **OUTPUT_EXCEL_PATH**, the script now defaults to `/tmp/football_competitions_fetch.xlsx` on Databricks so the run succeeds; that file is **ephemeral** (lost when the job ends). For **persistent** output, set the environment variable **OUTPUT_EXCEL_PATH** to a writable path such as `/dbfs/mnt/fmm_data/football_competitions_fetch.xlsx` (and ensure that path exists and the job has write access).
+
 ---
 
 **Optional Setup:** You can copy an existing `football_competitions_fetch.xlsx` and `football_fetch_state.json` from your current PC into the working folder (or DBFS volume) if you want to resume with existing manual table edits and "deleted" matches tracking. Not required for a fresh start.
