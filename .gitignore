@@ -1,0 +1,5 @@
+football_competitions_fetch.xlsx
+football_fetch_state.json
+.env
+league_cache.json
+__pycache__/
