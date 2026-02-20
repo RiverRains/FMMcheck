@@ -61,9 +61,9 @@ This project is built to run smoothly as a Databricks Job.
    - You need to add your secrets to a Databricks secret scope named `fmm_scope`.
    - Keys required: `genius_api_key` and optionally `slack_bot_token`.
      ```bash
-     databricks secrets create-scope --scope fmm_scope
-     databricks secrets put --scope fmm_scope --key genius_api_key
-     databricks secrets put --scope fmm_scope --key slack_bot_token
+     databricks secrets create-scope fmm_scope
+     databricks secrets put-secret fmm_scope genius_api_key
+     databricks secrets put-secret fmm_scope slack_bot_token
      ```
 
 2. **Databricks File System (DBFS) Storage:**
@@ -76,6 +76,93 @@ This project is built to run smoothly as a Databricks Job.
 3. **Job Configuration:**
    - **Task Type:** Python Script (point to `databricks_job.py` within your cloned repo).
    - **Dependencies:** Ensure `requests`, `openpyxl`, `slack_sdk`, and `tenacity` are installed on the job cluster.
+
+---
+
+## Next steps after pushing the project (Git) to Databricks
+
+Do these in order so the job runs with the right code, dependencies, and secrets.
+
+### 1. Create a secret scope and store secrets
+
+In your Databricks workspace (or via CLI):
+
+```bash
+# Create scope (if not exists). Scope name is positional (no --scope flag).
+databricks secrets create-scope fmm_scope
+
+# Store the API key and optional Slack token. Scope and key are positional; you’ll be prompted for the value.
+databricks secrets put-secret fmm_scope genius_api_key
+databricks secrets put-secret fmm_scope slack_bot_token
+```
+
+Or in the UI: **Settings → Secret scopes → Create scope**, then add the keys.
+
+### 2. Persist whitelist and output in DBFS (recommended)
+
+So runs don’t depend on ephemeral repo files:
+
+- Create a folder (e.g. `/mnt/fmm_data` or a Unity Catalog volume) and put `competition_whitelist.json` there.
+- You’ll pass this path and the output path to the job via environment variables (see below).
+
+### 3. Create a Job that runs your repo code
+
+- In the Databricks UI: **Workflows → Jobs → Create job**.
+- **Task type:** Python script.
+- **Source:** **Git** (not Workspace). Connect your repo and choose the branch; set **Script path** to the path of `databricks_job.py` inside the repo (e.g. `databricks_job.py` if it’s at repo root).
+- **Cluster:** Create or select a **Job cluster** (e.g. single-node, latest LTS or “Standard” runtime).
+
+### 4. Install dependencies on the job cluster
+
+Use one of these:
+
+- **Libraries (recommended):** In the job’s cluster configuration, under **Libraries**:
+  - **+ Add** → **PyPI** and add: `requests`, `openpyxl`, `slack_sdk`, `tenacity`, `python-dotenv`, `aiohttp` (one by one or as a single line if your UI supports it).
+- **Or requirements file:** Upload `requirements.txt` to the Workspace (or a UC volume). In the same **Libraries** section, **+ Add** → **Workspace** (or **Requirements**) and select that file so the cluster installs from it at startup.
+
+After adding libraries, the cluster will install them before running the task.
+
+### 5. Set environment variables (and secrets) for the job
+
+**Important:** Add these in the job’s **Environment variables** only—**never** in **Libraries** or **Requirements** (Databricks would try to install them as pip packages and fail with `ERROR_INVALID_REQUIREMENT`).
+
+**Where to find “Environment variables” in the UI**
+
+- **If you use serverless compute:** The job UI often does **not** show an “Environment variables” section for serverless. Use **classic jobs compute** instead so you can set env vars (see below).
+- **If you use classic jobs compute:**
+  1. Open your **Job** → in the job details panel, find the **Compute** section (list of compute resources used by the task).
+  2. Click the **compute resource** used by your Python script task (or **Configure** / the pencil next to it).
+  3. Open **Advanced** (toggle or section).
+  4. Open the **Spark** tab.
+  5. Find the **Environment variables** field and add the key-value pairs below.
+
+**If you don’t see “Environment variables”:** Switch the task to classic jobs compute: in the task’s **Compute** dropdown, choose **Classic** (or create/select a classic job cluster) instead of serverless. Then configure that cluster as above.
+
+**Staying on serverless:** The script tries to load secrets from the `fmm_scope` scope at startup when running in Databricks (via `dbutils`). In runtimes where `dbutils` is available (e.g. some serverless or notebook-backed runs), you may not need to set any environment variables—ensure the secret scope and keys exist (step 1) and the job identity has **READ** on the scope. If `dbutils` is not available (e.g. a pure Python script task with no Spark), the script cannot read secrets and you must use **classic jobs compute** and set the env vars above.
+
+**Values to set** (in the Environment variables field when using classic compute):
+
+- **Required:** API key from the secret scope:
+  - Name: `GENIUS_API_KEY`  
+  - Value: `{{secrets/fmm_scope/genius_api_key}}`
+- **Optional:** Slack token:
+  - Name: `SLACK_BOT_TOKEN`  
+  - Value: `{{secrets/fmm_scope/slack_bot_token}}`
+- **Optional:** Paths (if you use DBFS/volume paths):
+  - `WHITELIST_PATH=/dbfs/mnt/fmm_data/competition_whitelist.json`
+  - `OUTPUT_EXCEL_PATH=/dbfs/mnt/fmm_data/football_competitions_fetch.xlsx`
+
+The script reads `GENIUS_API_KEY` / `SLACK_BOT_TOKEN` from the environment; using `{{secrets/...}}` here is the correct way to inject Databricks secrets.
+
+### 6. Schedule the job
+
+In the job definition:
+
+- Open **Schedule** (or **Triggers**).
+- Choose **Cron** or **Interval** (e.g. daily at 6:00 AM).
+- Save the job.
+
+After that, the job will run on schedule with repo code, dependencies, and secrets; output and whitelist will be on DBFS/volume if you configured the paths above.
 
 ---
 

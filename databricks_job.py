@@ -4,7 +4,7 @@ import os
 import asyncio
 from pathlib import Path
 
-from config.settings import setup_logging, get_api_key
+from config.settings import setup_logging, get_api_key, inject_databricks_secrets_into_env
 from api.genius_client import GeniusClient
 from processing.match_evaluator import evaluate_webcast_data, evaluate_end_game_past_match_data, format_match_data
 from storage.excel_writer import create_excel_file_with_competitions
@@ -301,8 +301,9 @@ async def process_whitelisted_competitions(client, whitelist_ids, whitelist_conf
 
 async def main_async():
     setup_logging()
+    inject_databricks_secrets_into_env()  # load from Databricks secrets into os.environ when available (e.g. serverless)
     logger.info("=== FOOTBALL DATA FETCH STARTING ===")
-    
+
     api_key = get_api_key()
     if not api_key:
         logger.error("Exiting: No Genius Sports API key provided.")

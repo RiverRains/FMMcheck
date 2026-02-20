@@ -18,10 +18,11 @@ SLACK_TOKEN_FILE = Path(__file__).resolve().parent.parent / ".slack_bot_token"
 def get_dbutils():
     """Attempt to get the Databricks dbutils object if running in Databricks."""
     try:
-        from pyspark.sql import SparkSession
-        spark = SparkSession.builder.getOrCreate()
-        # This is a common way to get dbutils in a Databricks notebook environment
-        # Or using IPython
+        # Global scope (notebooks)
+        import builtins
+        if hasattr(builtins, "dbutils"):
+            return getattr(builtins, "dbutils")
+        # IPython (notebooks)
         try:
             import IPython
             dbutils = IPython.get_ipython().user_ns.get("dbutils")
@@ -29,19 +30,46 @@ def get_dbutils():
                 return dbutils
         except Exception:
             pass
-        
-        # Another fallback
-        if hasattr(spark, "conf") and "spark.databricks.workspaceUrl" in spark.conf.get("spark.app.name", ""):
-            pass # we are likely in databricks
-        
-        # Assuming dbutils is available in the global scope in Databricks notebooks
-        import builtins
-        if hasattr(builtins, "dbutils"):
-            return getattr(builtins, "dbutils")
-
+        # Spark session + DBUtils (job contexts that have Spark)
+        try:
+            from pyspark.sql import SparkSession
+            from pyspark.dbutils import DBUtils
+            spark = SparkSession.builder.getOrCreate()
+            return DBUtils(spark)
+        except Exception:
+            pass
         return None
     except Exception:
         return None
+
+
+def inject_databricks_secrets_into_env():
+    """
+    When running in Databricks (notebook or job with dbutils), load secrets from
+    fmm_scope into os.environ so the rest of the app can use get_api_key() etc.
+    without needing UI-configured environment variables. Safe to call when not
+    in Databricks or when env vars are already set (no-op).
+    """
+    if os.getenv("GENIUS_API_KEY") and os.getenv("SLACK_BOT_TOKEN"):
+        return
+    dbutils = get_dbutils()
+    if not dbutils:
+        return
+    scope = "fmm_scope"
+    try:
+        if not os.getenv("GENIUS_API_KEY"):
+            val = dbutils.secrets.get(scope=scope, key="genius_api_key")
+            if val:
+                os.environ["GENIUS_API_KEY"] = val
+    except Exception as e:
+        logger.debug("Could not load genius_api_key from Databricks secrets: %s", e)
+    try:
+        if not os.getenv("SLACK_BOT_TOKEN"):
+            val = dbutils.secrets.get(scope=scope, key="slack_bot_token")
+            if val:
+                os.environ["SLACK_BOT_TOKEN"] = val
+    except Exception as e:
+        logger.debug("Could not load slack_bot_token from Databricks secrets: %s", e)
 
 def get_secret(scope, key, env_var=None):
     """
