@@ -4,3 +4,4 @@ slack_sdk
 tenacity
 python-dotenv
 aiohttp
+nest-asyncio

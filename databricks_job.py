@@ -340,7 +340,14 @@ async def main_async():
         logger.error("FMM Automation run failed to save output.")
 
 def main():
+    # Allow asyncio.run() when already inside a running loop (e.g. Databricks / IPython)
+    try:
+        import nest_asyncio
+        nest_asyncio.apply()
+    except ImportError:
+        pass
     asyncio.run(main_async())
+
 
 if __name__ == "__main__":
     main()

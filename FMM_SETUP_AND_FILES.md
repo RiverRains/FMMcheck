@@ -109,7 +109,11 @@ So runs don’t depend on ephemeral repo files:
 
 - In the Databricks UI: **Workflows → Jobs → Create job**.
 - **Task type:** Python script.
-- **Source:** **Git** (not Workspace). Connect your repo and choose the branch; set **Script path** to the path of `databricks_job.py` inside the repo (e.g. `databricks_job.py` if it’s at repo root).
+- **Source:** **Git** (not Workspace). Connect your repo and choose the branch.
+- **Script path (Path):** Use the path to `databricks_job.py` **relative to the Git repo root**, with **no** leading slash and **no** `/Workspace/...` prefix. Examples:
+  - Repo root contains `databricks_job.py` → use **`databricks_job.py`**
+  - Repo has a subfolder `fmm_check` and the script is inside it → use **`fmm_check/databricks_job.py`**
+  If you use a full Workspace path (e.g. `/Workspace/Users/.../databricks_job.py`), the job will fail with "Cannot read the python file" and a mangled path.
 - **Cluster:** Create or select a **Job cluster** (e.g. single-node, latest LTS or “Standard” runtime).
 
 ### 4. Install dependencies on the job cluster
@@ -117,7 +121,7 @@ So runs don’t depend on ephemeral repo files:
 Use one of these:
 
 - **Libraries (recommended):** In the job’s cluster configuration, under **Libraries**:
-  - **+ Add** → **PyPI** and add: `requests`, `openpyxl`, `slack_sdk`, `tenacity`, `python-dotenv`, `aiohttp` (one by one or as a single line if your UI supports it).
+  - **+ Add** → **PyPI** and add: `requests`, `openpyxl`, `slack_sdk`, `tenacity`, `python-dotenv`, `aiohttp`, `nest-asyncio` (one by one or as a single line if your UI supports it).
 - **Or requirements file:** Upload `requirements.txt` to the Workspace (or a UC volume). In the same **Libraries** section, **+ Add** → **Workspace** (or **Requirements**) and select that file so the cluster installs from it at startup.
 
 After adding libraries, the cluster will install them before running the task.
@@ -163,6 +167,16 @@ In the job definition:
 - Save the job.
 
 After that, the job will run on schedule with repo code, dependencies, and secrets; output and whitelist will be on DBFS/volume if you configured the paths above.
+
+---
+
+### Troubleshooting
+
+- **"Cannot read the python file ... /Repos/...//Workspace/Users/.../databricks_job.py"**  
+  The script path is wrong. With **Git** as source, the **Path** must be **relative to the repo root** (e.g. `databricks_job.py` or `fmm_check/databricks_job.py`). Do not paste a Workspace path. Edit the task → **Source** / **Path** → set it to `databricks_job.py` (or the correct relative path) and save.
+
+- **"Invalid requirement: 'GENIUS_API_KEY={{secrets/...}}'"**  
+  The secret reference was added under **Libraries** or **Requirements**. Remove it from there and set it only under the compute **Environment variables** (or use classic compute; see step 5).
 
 ---
 
