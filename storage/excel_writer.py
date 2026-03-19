@@ -419,6 +419,7 @@ def create_excel_file_with_competitions(competitions, output_path):
         state = state_mgr.load_fetch_state()
         notification_state_mgr = NotificationStateManager(output_path)
         notification_state = notification_state_mgr.load_state()
+        notification_state_mgr.ensure_state_file()
         last_written = state.get("last_written", {})
         deleted = state.get("deleted", {})
         

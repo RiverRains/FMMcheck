@@ -77,6 +77,12 @@ class NotificationStateManager:
             "resolved_issues": resolved_issues,
         }
 
+    def ensure_state_file(self):
+        """Create an empty notification state file when it does not exist yet."""
+        if self.state_path.exists():
+            return
+        self.save_state(_default_notification_state())
+
     def save_state(self, state):
         try:
             self.state_path.parent.mkdir(parents=True, exist_ok=True)
