@@ -12,12 +12,13 @@ The project has been optimized for both local execution and automated scheduling
 | **config/** | `settings.py`: Configuration and secrets management (supports Databricks `dbutils.secrets` and `os.getenv()`). |
 | **notifications/** | `slack.py`: Slack alerts and error reporting. |
 | **processing/** | `match_evaluator.py`: Business logic for pre/post-match checks, DM checks, Webcast checks, WHST checks, etc. |
-| **storage/** | `excel_writer.py`, `state.py`: Handles reading/writing the `.xlsx` files and `football_fetch_state.json` states. |
+| **storage/** | `excel_writer.py`, `state.py`, `notification_state.py`: Handles reading/writing the `.xlsx` file plus persisted fetch and Slack dedupe state. |
 | **competition_whitelist.json** | List of competitions to process (IDs, names, league_id, etc.). |
 | **football_competitions_fetch.xlsx** | Output Excel. Generated/updated each run. |
 | **football_fetch_state.json** | State file tracking written and manually deleted match IDs. |
+| **notification_state.json** | State file tracking which Slack issues are currently open so unchanged alerts are not re-sent every 15 minutes. |
 
-The script only *reads* the whitelist and (if present) the existing Excel and state file. It *writes* the Excel and state file each run.
+The script only *reads* the whitelist and (if present) the existing Excel and state files. It *writes* the Excel plus both JSON state files each run.
 
 ---
 
@@ -71,7 +72,8 @@ This project is built to run smoothly as a Databricks Job.
    - To persist state and output files between scheduled runs, set the output path to DBFS using environment variables in your Databricks Job cluster settings:
      - `OUTPUT_EXCEL_PATH=/dbfs/mnt/fmm_data/football_competitions_fetch.xlsx`
      - `WHITELIST_PATH=/dbfs/mnt/fmm_data/competition_whitelist.json`
-   - The script detects `/dbfs/` paths and seamlessly writes the JSON state file and Excel document to the persistent storage.
+   - The script detects `/dbfs/` paths and seamlessly writes the Excel document plus `football_fetch_state.json` and `notification_state.json` to persistent storage beside it.
+   - If `OUTPUT_EXCEL_PATH` is not set and `/dbfs` is available, the script now defaults to `/dbfs/FileStore/fmm/football_competitions_fetch.xlsx` so notification dedupe survives scheduled runs.
 
 3. **Job Configuration:**
    - **Task Type:** Python Script (point to `databricks_job.py` within your cloned repo).
@@ -155,6 +157,9 @@ After adding libraries, the cluster will install them before running the task.
 - **Optional:** Paths (if you use DBFS/volume paths):
   - `WHITELIST_PATH=/dbfs/mnt/fmm_data/competition_whitelist.json`
   - `OUTPUT_EXCEL_PATH=/dbfs/mnt/fmm_data/football_competitions_fetch.xlsx`
+- **Optional:** Slack dedupe behavior:
+  - `SLACK_NOTIFY_RESOLVED=true` to send a Slack message when an issue clears
+  - `NOTIFICATION_STATE_RETENTION_DAYS=14` to control how long resolved issues stay in `notification_state.json`
 
 The script reads `GENIUS_API_KEY` / `SLACK_BOT_TOKEN` from the environment; using `{{secrets/...}}` here is the correct way to inject Databricks secrets.
 
@@ -179,8 +184,8 @@ After that, the job will run on schedule with repo code, dependencies, and secre
   The secret reference was added under **Libraries** or **Requirements**. Remove it from there and set it only under the compute **Environment variables** (or use classic compute; see step 5).
 
 - **"Error creating Excel file: [Errno 22] Invalid argument"**  
-  The job is writing to the repo directory (default path), which is often read-only on Databricks. If you did not set **OUTPUT_EXCEL_PATH**, the script now defaults to `/tmp/football_competitions_fetch.xlsx` on Databricks so the run succeeds; that file is **ephemeral** (lost when the job ends). For **persistent** output, set the environment variable **OUTPUT_EXCEL_PATH** to a writable path such as `/dbfs/mnt/fmm_data/football_competitions_fetch.xlsx` (and ensure that path exists and the job has write access).
+  The job is writing to the repo directory (default path), which is often read-only on Databricks. If you did not set **OUTPUT_EXCEL_PATH**, the script now prefers `/dbfs/FileStore/fmm/football_competitions_fetch.xlsx` when `/dbfs` is available, and falls back to `/tmp/football_competitions_fetch.xlsx` only when DBFS is unavailable. For a custom persistent location, set **OUTPUT_EXCEL_PATH** to a writable DBFS or volume path such as `/dbfs/mnt/fmm_data/football_competitions_fetch.xlsx` (and ensure that path exists and the job has write access).
 
 ---
 
-**Optional Setup:** You can copy an existing `football_competitions_fetch.xlsx` and `football_fetch_state.json` from your current PC into the working folder (or DBFS volume) if you want to resume with existing manual table edits and "deleted" matches tracking. Not required for a fresh start.
+**Optional Setup:** You can copy an existing `football_competitions_fetch.xlsx`, `football_fetch_state.json`, and `notification_state.json` from your current PC into the working folder (or DBFS volume) if you want to resume with existing manual table edits, deleted-match tracking, and Slack dedupe history. Not required for a fresh start.

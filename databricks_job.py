@@ -329,14 +329,21 @@ async def main_async():
         logger.error("No whitelisted competitions found or no matches available.")
         return
 
-    # Output path: use env if set; on Databricks default to /tmp to avoid [Errno 22] on read-only repo dir
+    # Output path: use env if set; on Databricks prefer a persistent DBFS location when available
     output_path = os.getenv("OUTPUT_EXCEL_PATH")
     if not output_path:
         if os.getenv("DATABRICKS_RUNTIME_VERSION"):
-            output_path = "/tmp/football_competitions_fetch.xlsx"
-            logger.info(
-                "OUTPUT_EXCEL_PATH not set; using /tmp (ephemeral). For persistent output, set OUTPUT_EXCEL_PATH to e.g. /dbfs/mnt/fmm_data/football_competitions_fetch.xlsx"
-            )
+            if Path("/dbfs").exists():
+                output_path = "/dbfs/FileStore/fmm/football_competitions_fetch.xlsx"
+                logger.info(
+                    "OUTPUT_EXCEL_PATH not set; using persistent DBFS path %s. Override OUTPUT_EXCEL_PATH to use a UC Volume or custom DBFS location.",
+                    output_path,
+                )
+            else:
+                output_path = "/tmp/football_competitions_fetch.xlsx"
+                logger.info(
+                    "OUTPUT_EXCEL_PATH not set and /dbfs is unavailable; using /tmp (ephemeral). Set OUTPUT_EXCEL_PATH to a persistent location to retain Excel and Slack notification dedupe state."
+                )
         else:
             output_path = "football_competitions_fetch.xlsx"
 

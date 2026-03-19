@@ -79,6 +79,75 @@ def collect_check_issues(competitions):
     return result
 
 
+def _normalize_issue_key_part(value):
+    return str(value or "").strip().replace("|", "/")
+
+
+def build_issue_fingerprint(competition_id, match_id, check_name, competition_name="", game=""):
+    """
+    Build a stable key for a single match/check issue.
+    Prefer IDs when available and fall back to names so malformed payloads still dedupe consistently.
+    """
+    competition_part = _normalize_issue_key_part(competition_id) or _normalize_issue_key_part(competition_name) or "unknown_competition"
+    match_part = _normalize_issue_key_part(match_id) or _normalize_issue_key_part(game) or "unknown_match"
+    check_part = _normalize_issue_key_part(check_name) or "unknown_check"
+    return f"{competition_part}|{match_part}|{check_part}"
+
+
+def flatten_check_issues(issue_groups):
+    """
+    Flatten grouped issue blocks into a stable issue map keyed by fingerprint.
+    Used to diff current issues against the previously notified issue set.
+    """
+    flattened = {}
+
+    for comp_issue in issue_groups:
+        league_name = str(comp_issue.get("league_name", "")).strip()
+        league_id = str(comp_issue.get("league_id", "")).strip()
+        competition_name = str(comp_issue.get("competition_name", "")).strip()
+        competition_id = str(comp_issue.get("competition_id", "")).strip()
+
+        for match in comp_issue.get("matches", []):
+            match_id = str(match.get("matchId", "")).strip()
+            game = str(match.get("game", "")).strip() or "Match"
+            webcast_url = str(match.get("webcast_url", "")).strip()
+            hs_url = str(match.get("hs_url", "")).strip()
+
+            for check_name in match.get("failed_checks", []):
+                detail_label = ""
+                detail_url = ""
+
+                if check_name == "Live game Webcast check" and webcast_url:
+                    detail_label = "Webcast"
+                    detail_url = webcast_url
+                elif check_name == "End game past match data" and hs_url:
+                    detail_label = "HS"
+                    detail_url = hs_url
+
+                issue_key = build_issue_fingerprint(
+                    competition_id=competition_id,
+                    match_id=match_id,
+                    check_name=check_name,
+                    competition_name=competition_name,
+                    game=game,
+                )
+
+                flattened[issue_key] = {
+                    "issue_key": issue_key,
+                    "league_name": league_name,
+                    "league_id": league_id,
+                    "competition_name": competition_name,
+                    "competition_id": competition_id,
+                    "game": game,
+                    "match_id": match_id,
+                    "check_name": check_name,
+                    "detail_label": detail_label,
+                    "detail_url": detail_url,
+                }
+
+    return flattened
+
+
 def _extract_team_names(tm):
     team1_name = None
     team2_name = None

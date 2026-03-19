@@ -1,12 +1,15 @@
 import re
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta, time, timezone
 from pathlib import Path
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side, NamedStyle
 
+from config.settings import should_notify_resolved_issues, get_notification_state_retention_days
+from storage.notification_state import NotificationStateManager, prune_resolved_issues
 from storage.state import StateManager
-from processing.match_evaluator import collect_check_issues
+from processing.match_evaluator import collect_check_issues, flatten_check_issues
 from notifications.slack import send_slack_message
 
 logger = logging.getLogger(__name__)
@@ -302,6 +305,109 @@ def apply_table_styling(wb, ws, num_tables):
     except Exception as e:
         logger.error(f"Error applying table styling: {str(e)}")
 
+
+def _utc_now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _sorted_issue_records(issue_records):
+    return sorted(
+        issue_records,
+        key=lambda issue: (
+            issue.get("league_name", ""),
+            issue.get("competition_name", ""),
+            issue.get("game", ""),
+            issue.get("match_id", ""),
+            issue.get("check_name", ""),
+        ),
+    )
+
+
+def _build_open_issue_state(current_issue_map, previous_open_issues, now_iso):
+    open_issue_state = {}
+
+    for issue_key, issue in current_issue_map.items():
+        previous_issue = previous_open_issues.get(issue_key, {})
+        open_issue_state[issue_key] = {
+            **issue,
+            "first_seen_at": previous_issue.get("first_seen_at", now_iso),
+            "last_seen_at": now_iso,
+        }
+
+    return open_issue_state
+
+
+def _build_resolved_issue_state(previous_resolved_issues, previous_open_issues, current_issue_map, resolved_issue_keys, now_iso):
+    resolved_issue_state = {
+        issue_key: issue
+        for issue_key, issue in (previous_resolved_issues or {}).items()
+        if issue_key not in current_issue_map
+    }
+
+    for issue_key in resolved_issue_keys:
+        previous_issue = previous_open_issues.get(issue_key)
+        if not previous_issue:
+            continue
+
+        resolved_issue_state[issue_key] = {
+            **previous_issue,
+            "resolved_at": now_iso,
+        }
+
+    return resolved_issue_state
+
+
+def _append_issue_section(lines, title, issue_records):
+    if not issue_records:
+        return
+
+    grouped_records = defaultdict(list)
+    for issue in _sorted_issue_records(issue_records):
+        competition_key = (
+            issue.get("league_name", ""),
+            issue.get("league_id", ""),
+            issue.get("competition_name", ""),
+            issue.get("competition_id", ""),
+        )
+        grouped_records[competition_key].append(issue)
+
+    lines.append("")
+    lines.append(f"*{title}:*")
+
+    for (league_name, league_id, competition_name, competition_id), records in grouped_records.items():
+        lines.append("")
+        lines.append(
+            f"*{league_name}* (League ID {league_id}) — *{competition_name}* (Competition ID {competition_id})"
+        )
+        for issue in records:
+            line = f"  • {issue.get('game', 'Match')} (ID {issue.get('match_id', '')}): {issue.get('check_name', '')}"
+            detail_url = issue.get("detail_url", "")
+            detail_label = issue.get("detail_label", "")
+            if detail_url and detail_label:
+                line += f" | {detail_label}: <{detail_url}>"
+            lines.append(line)
+
+
+def _build_slack_notification_text(competitions, total_matches, total_new_matches, new_issue_records, resolved_issue_records):
+    notify_resolved = should_notify_resolved_issues()
+    utc_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    lines = [
+        f"FMM alert update at {utc_ts}",
+        f"• Competitions processed: {len(competitions)}",
+        f"• Total matches in Excel: {total_matches}",
+        f"• New matches since last launch: {total_new_matches}",
+        f"• New issues: {len(new_issue_records)}",
+    ]
+
+    if notify_resolved:
+        lines.append(f"• Resolved issues: {len(resolved_issue_records)}")
+
+    _append_issue_section(lines, "New issues", new_issue_records)
+    if notify_resolved:
+        _append_issue_section(lines, "Resolved issues", resolved_issue_records)
+
+    return "\n".join(lines)
+
 def create_excel_file_with_competitions(competitions, output_path):
     logger.info(f"Creating Excel file with competitions at: {output_path}")
     try:
@@ -311,6 +417,8 @@ def create_excel_file_with_competitions(competitions, output_path):
 
         state_mgr = StateManager(output_path)
         state = state_mgr.load_fetch_state()
+        notification_state_mgr = NotificationStateManager(output_path)
+        notification_state = notification_state_mgr.load_state()
         last_written = state.get("last_written", {})
         deleted = state.get("deleted", {})
         
@@ -423,35 +531,69 @@ def create_excel_file_with_competitions(competitions, output_path):
         state_mgr.save_fetch_state(state)
         logger.info(f"Excel file created successfully: {output_path}")
 
-        # Send slack notification
+        previous_open_issues = notification_state.get("open_issues", {})
+        previous_resolved_issues = notification_state.get("resolved_issues", {})
+        now_iso = _utc_now_iso()
+
         total_matches = sum(len(c.get('matches', [])) for c in competitions)
-        utc_ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-        slack_text = (
-            f"FMM run completed at {utc_ts}\n"
-            f"• Competitions processed: {len(competitions)}\n"
-            f"• Total matches in Excel: {total_matches}\n"
-            f"• New matches since last launch: {total_new_matches}"
+        issue_groups = collect_check_issues(competitions)
+        current_issue_map = flatten_check_issues(issue_groups)
+        current_issue_keys = set(current_issue_map)
+        previous_issue_keys = set(previous_open_issues)
+        new_issue_keys = current_issue_keys - previous_issue_keys
+        resolved_issue_keys = previous_issue_keys - current_issue_keys
+
+        next_open_issues = _build_open_issue_state(current_issue_map, previous_open_issues, now_iso)
+        next_resolved_issues = _build_resolved_issue_state(
+            previous_resolved_issues,
+            previous_open_issues,
+            current_issue_map,
+            resolved_issue_keys,
+            now_iso,
         )
-        issues = collect_check_issues(competitions)
-        if issues:
-            slack_text += "\n\n*Issues found:*"
-            for comp_issue in issues:
-                slack_text += (
-                    f"\n\n*{comp_issue['league_name']}* (League ID {comp_issue['league_id']}) — "
-                    f"*{comp_issue['competition_name']}* (Competition ID {comp_issue['competition_id']})"
+        next_resolved_issues = prune_resolved_issues(
+            next_resolved_issues,
+            get_notification_state_retention_days(),
+        )
+
+        new_issue_records = [current_issue_map[issue_key] for issue_key in new_issue_keys]
+        resolved_issue_records = [
+            next_resolved_issues[issue_key]
+            for issue_key in resolved_issue_keys
+            if issue_key in next_resolved_issues
+        ]
+
+        notify_resolved = should_notify_resolved_issues()
+        should_send_slack = bool(new_issue_records or (notify_resolved and resolved_issue_records))
+
+        if should_send_slack:
+            slack_text = _build_slack_notification_text(
+                competitions,
+                total_matches,
+                total_new_matches,
+                new_issue_records,
+                resolved_issue_records,
+            )
+            if send_slack_message(slack_text):
+                notification_state_mgr.save_state(
+                    {
+                        "open_issues": next_open_issues,
+                        "resolved_issues": next_resolved_issues,
+                    }
                 )
-                for m in comp_issue["matches"]:
-                    checks_str = ", ".join(m["failed_checks"])
-                    slack_text += f"\n  • {m['game']} (ID {m['matchId']}): {checks_str}"
-                    if m.get("webcast_url"):
-                        slack_text += f" | Webcast: <{m['webcast_url']}>"
-                    if m.get("hs_url"):
-                        slack_text += f" | HS: <{m['hs_url']}>"
-        
-        if send_slack_message(slack_text):
-            logger.info("Slack notification sent to #notifications-fmm")
+                logger.info("Slack notification sent to #notifications-fmm")
+            else:
+                logger.info("Slack not sent; notification state preserved so alerts retry on the next run")
+        elif resolved_issue_keys:
+            notification_state_mgr.save_state(
+                {
+                    "open_issues": next_open_issues,
+                    "resolved_issues": next_resolved_issues,
+                }
+            )
+            logger.info("Issue state updated without Slack notification because only resolved issues changed")
         else:
-            logger.info("Slack not sent (set SLACK_BOT_TOKEN to enable)")
+            logger.info("No new Slack issue deltas detected; skipping Slack notification")
 
         return True
         

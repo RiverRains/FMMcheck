@@ -1686,19 +1686,6 @@ def fetch_matches_for_competition(api_key, competition_id, competition_name, com
             match['livestream_status'] = livestream_status
             match['match_live_data_source'] = match_live_data_source
             
-            # Extract competitor names from match_data if not already set (fallback for when initial API call doesn't include them)
-            if (not match.get('competitor1') or not match.get('competitor2')) and match_data:
-                if 'competitors' in match_data and isinstance(match_data['competitors'], list):
-                    competitors = match_data['competitors']
-                    if len(competitors) >= 2:
-                        if not match.get('competitor1'):
-                            match['competitor1'] = competitors[0].get('teamNameInternational', '') or competitors[0].get('competitorName', '') or competitors[0].get('teamName', '')
-                        if not match.get('competitor2'):
-                            match['competitor2'] = competitors[1].get('teamNameInternational', '') or competitors[1].get('competitorName', '') or competitors[1].get('teamName', '')
-                # Also try to update the game field if we now have competitor names
-                if match.get('competitor1') and match.get('competitor2'):
-                    match['game'] = f"{match['competitor1']} vs {match['competitor2']}"
-            
             # Check if the match's data source matches what the competition expects
             # This is important for data quality - they should match
             if competition_live_data_source and match_live_data_source:
