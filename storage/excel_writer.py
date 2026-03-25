@@ -408,7 +408,7 @@ def _build_slack_notification_text(competitions, total_matches, total_new_matche
 
     return "\n".join(lines)
 
-def create_excel_file_with_competitions(competitions, output_path):
+def create_excel_file_with_competitions(competitions, output_path, whitelist_config=None):
     logger.info(f"Creating Excel file with competitions at: {output_path}")
     try:
         existing_matches_map = load_existing_matches(output_path)
@@ -525,7 +525,11 @@ def create_excel_file_with_competitions(competitions, output_path):
                 current_row += 1
         
         apply_table_styling(wb, ws, len(competitions))
-        
+
+        # Add whitelist tab if config provided
+        if whitelist_config:
+            write_whitelist_sheet(wb, whitelist_config)
+
         # Ensure the directory exists
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         wb.save(output_path)
@@ -601,3 +605,119 @@ def create_excel_file_with_competitions(competitions, output_path):
     except Exception as e:
         logger.error(f"Error creating Excel file: {str(e)}")
         return False
+
+
+WHITELIST_HEADERS = ['Competition ID (required)', 'Name (auto-filled)', 'League ID (auto-filled)', 'League Name (auto-filled)', 'Start Date', 'End Date', 'Added Date']
+
+
+def write_whitelist_sheet(wb, whitelist_config):
+    """Add a 'Whitelist' tab to the workbook with the competition whitelist data."""
+    if "Whitelist" in wb.sheetnames:
+        del wb["Whitelist"]
+
+    ws = wb.create_sheet("Whitelist")
+
+    # Instructions row
+    instruction_font = Font(italic=True, color="666666", size=10)
+    instruction_cell = ws.cell(row=1, column=1, value="To add a competition: enter its ID in column A on a new row. Name, League ID, and League Name will be filled automatically on the next run.")
+    instruction_cell.font = instruction_font
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(WHITELIST_HEADERS))
+
+    # Header row
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    for col_idx, header in enumerate(WHITELIST_HEADERS, 1):
+        cell = ws.cell(row=2, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+
+    # Data rows
+    competitions = whitelist_config.get('active_competitions', [])
+    for row_idx, comp in enumerate(competitions, 3):
+        ws.cell(row=row_idx, column=1, value=comp.get('id', ''))
+        ws.cell(row=row_idx, column=2, value=comp.get('name', ''))
+        ws.cell(row=row_idx, column=3, value=comp.get('league_id', ''))
+        ws.cell(row=row_idx, column=4, value=comp.get('league_name', ''))
+        ws.cell(row=row_idx, column=5, value=comp.get('start_date', ''))
+        ws.cell(row=row_idx, column=6, value=comp.get('end_date', ''))
+        ws.cell(row=row_idx, column=7, value=comp.get('added_date', ''))
+
+    # Auto-fit column widths
+    for col_idx in range(1, len(WHITELIST_HEADERS) + 1):
+        max_len = len(WHITELIST_HEADERS[col_idx - 1])
+        for row in ws.iter_rows(min_row=3, min_col=col_idx, max_col=col_idx):
+            for cell in row:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = min(max_len + 4, 50)
+
+    logger.info(f"Whitelist tab written with {len(competitions)} competitions")
+
+
+def read_whitelist_from_excel(excel_path):
+    """
+    Read the competition whitelist from the 'Whitelist' tab of the Excel file.
+    Returns a whitelist config dict compatible with competition_whitelist.json format,
+    or None if the tab doesn't exist or can't be read.
+    """
+    try:
+        wb = openpyxl.load_workbook(excel_path, read_only=True, data_only=True)
+        if "Whitelist" not in wb.sheetnames:
+            wb.close()
+            return None
+
+        ws = wb["Whitelist"]
+        competitions = []
+        for row in ws.iter_rows(min_row=3, values_only=True):
+            if not row or not row[0]:
+                continue
+            comp_id = row[0]
+            if isinstance(comp_id, str):
+                try:
+                    comp_id = int(comp_id)
+                except ValueError:
+                    continue
+            elif not isinstance(comp_id, (int, float)):
+                continue
+            comp_id = int(comp_id)
+
+            league_id = row[2] if len(row) > 2 else ''
+            if isinstance(league_id, str):
+                try:
+                    league_id = int(league_id)
+                except ValueError:
+                    league_id = 0
+            elif isinstance(league_id, (int, float)):
+                league_id = int(league_id)
+            else:
+                league_id = 0
+
+            comp = {
+                'id': comp_id,
+                'name': str(row[1]).strip() if len(row) > 1 and row[1] else '',
+                'league_id': league_id,
+                'league_name': str(row[3]).strip() if len(row) > 3 and row[3] else '',
+            }
+            if len(row) > 4 and row[4]:
+                comp['start_date'] = str(row[4]).strip()
+            if len(row) > 5 and row[5]:
+                comp['end_date'] = str(row[5]).strip()
+            if len(row) > 6 and row[6]:
+                comp['added_date'] = str(row[6]).strip()
+
+            competitions.append(comp)
+
+        wb.close()
+
+        if not competitions:
+            return None
+
+        logger.info(f"Read {len(competitions)} competitions from Excel whitelist tab")
+        return {
+            'active_competitions': competitions,
+            'total_competitions': len(competitions),
+        }
+    except Exception as e:
+        logger.error(f"Error reading whitelist from Excel: {e}")
+        return None

@@ -49,6 +49,36 @@ def _find_existing_file(service, folder_id, filename):
     return files[0]["id"] if files else None
 
 
+def download_from_gdrive(filename: str, local_path: str) -> bool:
+    """Download a file from Google Drive by name. Returns True on success."""
+    folder_id = os.getenv("GDRIVE_FOLDER_ID")
+    if not folder_id:
+        logger.debug("GDRIVE_FOLDER_ID not set. Skipping Google Drive download.")
+        return False
+
+    creds = _get_credentials()
+    if not creds:
+        logger.debug("No Google Drive credentials found. Skipping download.")
+        return False
+
+    try:
+        from googleapiclient.discovery import build
+
+        service = build("drive", "v3", credentials=creds)
+        file_id = _find_existing_file(service, folder_id, filename)
+        if not file_id:
+            logger.info("File '%s' not found on Google Drive.", filename)
+            return False
+
+        content = service.files().get_media(fileId=file_id).execute()
+        Path(local_path).write_bytes(content)
+        logger.info("Downloaded '%s' from Google Drive to %s", filename, local_path)
+        return True
+    except Exception as e:
+        logger.error("Google Drive download failed: %s", e)
+        return False
+
+
 def upload_to_gdrive(file_path: str) -> bool:
     """Upload file to Google Drive. Returns True on success, False on skip/failure."""
     folder_id = os.getenv("GDRIVE_FOLDER_ID")

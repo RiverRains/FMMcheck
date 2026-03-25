@@ -161,6 +161,27 @@ class GeniusClient:
             save_league_cache(_league_details_cache)
         return result
 
+    async def fetch_competition_info(self, competition_id):
+        """Fetch minimal match data for a competition to resolve its metadata."""
+        url = f"https://api.wh.geniussports.com/v1/football/competitions/{competition_id}/matches"
+        params = {'limit': 1}
+        try:
+            data = await self._get(url, params=params)
+            if data and 'response' in data and 'data' in data['response']:
+                matches = data['response']['data']
+                if matches:
+                    m = matches[0]
+                    return {
+                        'id': competition_id,
+                        'name': m.get('competitionName', '') or m.get('competitionNameInternational', ''),
+                        'league_id': m.get('leagueId', 0),
+                        'league_name': m.get('leagueName', '') or m.get('leagueNameInternational', ''),
+                    }
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching competition info for {competition_id}: {e}")
+            return None
+
     async def fetch_competitions_for_league(self, league_id):
         url = f"https://api.wh.geniussports.com/v1/football/leagues/{league_id}/competitions"
         params = {'limit': 100}

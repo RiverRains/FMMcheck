@@ -7,8 +7,8 @@ from pathlib import Path
 from config.settings import setup_logging, get_api_key, inject_databricks_secrets_into_env
 from api.genius_client import GeniusClient
 from processing.match_evaluator import evaluate_webcast_data, evaluate_end_game_past_match_data, format_match_data
-from storage.excel_writer import create_excel_file_with_competitions
-from storage.gdrive_uploader import upload_to_gdrive
+from storage.excel_writer import create_excel_file_with_competitions, read_whitelist_from_excel
+from storage.gdrive_uploader import upload_to_gdrive, download_from_gdrive
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,35 @@ def load_competition_whitelist(whitelist_file='competition_whitelist.json'):
     except Exception as e:
         logger.error(f"Error loading whitelist: {e}")
         return [], {}
+
+async def resolve_incomplete_whitelist(client, whitelist_config):
+    """
+    For whitelist entries where only the ID is provided (no name/league_id),
+    fetch the competition info from the API and fill in the missing fields.
+    """
+    competitions = whitelist_config.get('active_competitions', [])
+    updated = False
+    for comp in competitions:
+        if comp.get('name') and comp.get('league_id'):
+            continue
+        comp_id = comp['id']
+        logger.info(f"Resolving competition info for ID {comp_id} from API...")
+        info = await client.fetch_competition_info(comp_id)
+        if info:
+            comp['name'] = info.get('name', f'Competition {comp_id}')
+            comp['league_id'] = info.get('league_id', 0)
+            comp['league_name'] = info.get('league_name', '')
+            from datetime import datetime
+            comp['added_date'] = datetime.now().strftime('%Y-%m-%d')
+            logger.info(f"  Resolved: {comp['name']} (League: {comp['league_name']})")
+            updated = True
+        else:
+            logger.warning(f"  Could not resolve competition {comp_id} from API")
+    if updated:
+        whitelist_config['active_competitions'] = competitions
+        whitelist_config['total_competitions'] = len(competitions)
+    return whitelist_config
+
 
 async def process_single_match(client, match, competition_live_data_source, league_abbrev, semaphore):
     """
@@ -310,26 +339,6 @@ async def main_async():
         logger.error("Exiting: No Genius Sports API key provided.")
         return
         
-    # Get whitelist config path based on current environment
-    # In Databricks, you might need an absolute path to DBFS or a repo path
-    whitelist_path = os.getenv("WHITELIST_PATH", "competition_whitelist.json")
-    
-    whitelist_ids, whitelist_config = load_competition_whitelist(whitelist_path)
-    if not whitelist_ids:
-        logger.error("Exiting: No competitions in whitelist.")
-        return
-        
-    client = GeniusClient(api_key=api_key)
-    
-    try:
-        competitions_with_matches = await process_whitelisted_competitions(client, whitelist_ids, whitelist_config)
-    finally:
-        await client.close()
-    
-    if not competitions_with_matches:
-        logger.error("No whitelisted competitions found or no matches available.")
-        return
-
     # Output path: use env if set; on Databricks prefer a persistent DBFS location when available
     output_path = os.getenv("OUTPUT_EXCEL_PATH")
     if not output_path:
@@ -348,8 +357,40 @@ async def main_async():
         else:
             output_path = "football_competitions_fetch.xlsx"
 
-    success = create_excel_file_with_competitions(competitions_with_matches, output_path)
-    
+    # Try to download existing Excel from Google Drive (to read whitelist + preserve state)
+    download_from_gdrive(Path(output_path).name, output_path)
+
+    # Try reading whitelist from the Excel file's Whitelist tab first
+    whitelist_config = read_whitelist_from_excel(output_path)
+    if whitelist_config:
+        whitelist_ids = [comp['id'] for comp in whitelist_config['active_competitions']]
+        logger.info(f"Using whitelist from Excel file ({len(whitelist_ids)} competitions)")
+    else:
+        # Fall back to JSON file
+        whitelist_path = os.getenv("WHITELIST_PATH", "competition_whitelist.json")
+        whitelist_ids, whitelist_config = load_competition_whitelist(whitelist_path)
+
+    if not whitelist_ids:
+        logger.error("Exiting: No competitions in whitelist.")
+        return
+
+    client = GeniusClient(api_key=api_key)
+
+    try:
+        # Resolve incomplete whitelist entries (user added only an ID)
+        whitelist_config = await resolve_incomplete_whitelist(client, whitelist_config)
+        whitelist_ids = [comp['id'] for comp in whitelist_config['active_competitions']]
+
+        competitions_with_matches = await process_whitelisted_competitions(client, whitelist_ids, whitelist_config)
+    finally:
+        await client.close()
+
+    if not competitions_with_matches:
+        logger.error("No whitelisted competitions found or no matches available.")
+        return
+
+    success = create_excel_file_with_competitions(competitions_with_matches, output_path, whitelist_config)
+
     if success:
         logger.info("FMM Automation run completed successfully.")
         upload_to_gdrive(output_path)
