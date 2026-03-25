@@ -7,14 +7,7 @@ logger = logging.getLogger(__name__)
 class StateManager:
     def __init__(self, output_path):
         """Initialize with the path to the Excel output file to determine state file location."""
-        # Check if output_path is a DBFS path
-        path_str = str(output_path)
-        if path_str.startswith("/dbfs/"):
-            # Use the exact directory structure but change the extension
-            base_dir = path_str.rsplit('/', 1)[0] if '/' in path_str else ''
-            self.state_path = Path(base_dir) / "football_fetch_state.json"
-        else:
-            self.state_path = Path(output_path).parent / "football_fetch_state.json"
+        self.state_path = Path(output_path).parent / "football_fetch_state.json"
 
     def load_fetch_state(self):
         """

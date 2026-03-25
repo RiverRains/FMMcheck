@@ -42,12 +42,7 @@ def prune_resolved_issues(resolved_issues, retention_days, now=None):
 class NotificationStateManager:
     def __init__(self, output_path):
         """Store notification state beside the configured output file."""
-        path_str = str(output_path)
-        if path_str.startswith("/dbfs/"):
-            base_dir = path_str.rsplit("/", 1)[0] if "/" in path_str else ""
-            self.state_path = Path(base_dir) / "notification_state.json"
-        else:
-            self.state_path = Path(output_path).parent / "notification_state.json"
+        self.state_path = Path(output_path).parent / "notification_state.json"
 
     def load_state(self):
         if not self.state_path.exists():

@@ -7,25 +7,25 @@ import os
 
 logger = logging.getLogger(__name__)
 
-DBFS_CACHE_PATH = os.getenv("LEAGUE_CACHE_PATH", "league_cache.json")
+LEAGUE_CACHE_PATH = os.getenv("LEAGUE_CACHE_PATH", "league_cache.json")
 
 def load_league_cache():
-    if os.path.exists(DBFS_CACHE_PATH):
+    if os.path.exists(LEAGUE_CACHE_PATH):
         try:
-            with open(DBFS_CACHE_PATH, 'r', encoding='utf-8') as f:
+            with open(LEAGUE_CACHE_PATH, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            logger.warning(f"Failed to load league cache from {DBFS_CACHE_PATH}: {e}")
+            logger.warning(f"Failed to load league cache from {LEAGUE_CACHE_PATH}: {e}")
     return {}
 
 def save_league_cache(cache_data):
     try:
         # Only save strings, not asyncio.Tasks
         serializable_cache = {k: v for k, v in cache_data.items() if isinstance(v, str)}
-        with open(DBFS_CACHE_PATH, 'w', encoding='utf-8') as f:
+        with open(LEAGUE_CACHE_PATH, 'w', encoding='utf-8') as f:
             json.dump(serializable_cache, f)
     except Exception as e:
-        logger.warning(f"Failed to save league cache to {DBFS_CACHE_PATH}: {e}")
+        logger.warning(f"Failed to save league cache to {LEAGUE_CACHE_PATH}: {e}")
 
 # Caches to avoid duplicate API calls
 _league_details_cache = load_league_cache()

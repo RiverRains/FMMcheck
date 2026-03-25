@@ -4,7 +4,7 @@ import os
 import asyncio
 from pathlib import Path
 
-from config.settings import setup_logging, get_api_key, inject_databricks_secrets_into_env
+from config.settings import setup_logging, get_api_key
 from api.genius_client import GeniusClient
 from processing.match_evaluator import evaluate_webcast_data, evaluate_end_game_past_match_data, format_match_data
 from storage.excel_writer import create_excel_file_with_competitions, read_whitelist_from_excel
@@ -331,31 +331,14 @@ async def process_whitelisted_competitions(client, whitelist_ids, whitelist_conf
 
 async def main_async():
     setup_logging()
-    inject_databricks_secrets_into_env()  # load from Databricks secrets into os.environ when available (e.g. serverless)
     logger.info("=== FOOTBALL DATA FETCH STARTING ===")
 
     api_key = get_api_key()
     if not api_key:
         logger.error("Exiting: No Genius Sports API key provided.")
         return
-        
-    # Output path: use env if set; on Databricks prefer a persistent DBFS location when available
-    output_path = os.getenv("OUTPUT_EXCEL_PATH")
-    if not output_path:
-        if os.getenv("DATABRICKS_RUNTIME_VERSION"):
-            if Path("/dbfs").exists():
-                output_path = "/dbfs/FileStore/fmm/football_competitions_fetch.xlsx"
-                logger.info(
-                    "OUTPUT_EXCEL_PATH not set; using persistent DBFS path %s. Override OUTPUT_EXCEL_PATH to use a UC Volume or custom DBFS location.",
-                    output_path,
-                )
-            else:
-                output_path = "/tmp/football_competitions_fetch.xlsx"
-                logger.info(
-                    "OUTPUT_EXCEL_PATH not set and /dbfs is unavailable; using /tmp (ephemeral). Set OUTPUT_EXCEL_PATH to a persistent location to retain Excel and Slack notification dedupe state."
-                )
-        else:
-            output_path = "football_competitions_fetch.xlsx"
+
+    output_path = os.getenv("OUTPUT_EXCEL_PATH", "football_competitions_fetch.xlsx")
 
     # Try to download existing Excel from Google Drive (to read whitelist + preserve state)
     download_from_gdrive(Path(output_path).name, output_path)
@@ -398,12 +381,6 @@ async def main_async():
         logger.error("FMM Automation run failed to save output.")
 
 def main():
-    # Allow asyncio.run() when already inside a running loop (e.g. Databricks / IPython)
-    try:
-        import nest_asyncio
-        nest_asyncio.apply()
-    except ImportError:
-        pass
     asyncio.run(main_async())
 
 

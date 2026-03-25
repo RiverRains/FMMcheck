@@ -8,5 +8,6 @@ __pycache__/
 .DS_Store
 venv/
 service_account.json
+service-account.json
 gdrive_token.json
 gdrive_credentials.json
