@@ -67,6 +67,17 @@ class NotificationStateManager:
         open_issues = data.get("open_issues", {})
         resolved_issues = data.get("resolved_issues", {})
 
+        # Migrate legacy format: open_issue_keys (array) → open_issues (dict)
+        if not open_issues and "open_issue_keys" in data:
+            legacy_keys = data["open_issue_keys"]
+            if isinstance(legacy_keys, list):
+                logger.info("Migrating %d legacy open_issue_keys to open_issues dict.", len(legacy_keys))
+                updated_at = data.get("updated_at", datetime.now(timezone.utc).isoformat())
+                open_issues = {
+                    key: {"first_seen": updated_at, "last_seen": updated_at}
+                    for key in legacy_keys
+                }
+
         if not isinstance(open_issues, dict):
             open_issues = {}
         if not isinstance(resolved_issues, dict):
