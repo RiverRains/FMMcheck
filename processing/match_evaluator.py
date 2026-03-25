@@ -476,6 +476,23 @@ def format_match_data(match):
             match['time_tallinn_formatted'] = ''
             match['time_medellin_formatted'] = ''
             
+        # Extract competitor names from the competitors array if not already set
+        if not match.get('competitor1') or not match.get('competitor2'):
+            competitors = match.get('competitors', [])
+            if isinstance(competitors, list) and len(competitors) >= 2:
+                if not match.get('competitor1'):
+                    match['competitor1'] = (
+                        competitors[0].get('teamNameInternational', '')
+                        or competitors[0].get('competitorName', '')
+                        or competitors[0].get('teamName', '')
+                    )
+                if not match.get('competitor2'):
+                    match['competitor2'] = (
+                        competitors[1].get('teamNameInternational', '')
+                        or competitors[1].get('competitorName', '')
+                        or competitors[1].get('teamName', '')
+                    )
+
         if match.get('competitor1') and match.get('competitor2'):
             match['game'] = f"{match['competitor1']} vs {match['competitor2']}"
         else:
