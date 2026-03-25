@@ -1,34 +1,42 @@
 import os
 import json
-import base64
 import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+
 
 def _get_credentials():
-    """Build Google Service Account credentials from env vars."""
+    """Build Google OAuth2 credentials from stored refresh token."""
     try:
-        from google.oauth2 import service_account
+        from google.oauth2.credentials import Credentials
     except ImportError:
         logger.debug("google-auth not installed; Google Drive upload unavailable.")
         return None
 
-    # Try base64-encoded JSON string first (CI / GitHub Actions)
-    sa_json_b64 = os.getenv("GDRIVE_SA_JSON")
-    if sa_json_b64:
-        sa_info = json.loads(base64.b64decode(sa_json_b64))
-        return service_account.Credentials.from_service_account_info(
-            sa_info, scopes=["https://www.googleapis.com/auth/drive.file"]
+    client_id = os.getenv("GDRIVE_CLIENT_ID")
+    client_secret = os.getenv("GDRIVE_CLIENT_SECRET")
+    refresh_token = os.getenv("GDRIVE_REFRESH_TOKEN")
+
+    if client_id and client_secret and refresh_token:
+        return Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            client_id=client_id,
+            client_secret=client_secret,
+            token_uri="https://oauth2.googleapis.com/token",
+            scopes=SCOPES,
         )
 
-    # Try file path (local dev)
-    sa_path = os.getenv("GDRIVE_SA_JSON_PATH")
-    if sa_path and Path(sa_path).exists():
-        return service_account.Credentials.from_service_account_file(
-            sa_path, scopes=["https://www.googleapis.com/auth/drive.file"]
-        )
+    # Try local token file (saved by gdrive_auth.py)
+    token_path = Path(__file__).resolve().parent.parent / "gdrive_token.json"
+    if token_path.exists():
+        try:
+            return Credentials.from_authorized_user_file(str(token_path), SCOPES)
+        except Exception as e:
+            logger.debug("Failed to load token from %s: %s", token_path, e)
 
     return None
 
