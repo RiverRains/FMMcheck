@@ -197,6 +197,10 @@ async def fetch_competition_data(client, comp_id, whitelist_lookup, from_date, t
     raw_matches = await client.fetch_matches_for_competition(comp_id, from_date, to_date)
     
     formatted_matches = []
+    if raw_matches:
+        sample = raw_matches[0]
+        logger.info(f"DEBUG: Raw match keys: {list(sample.keys())}")
+        logger.info(f"DEBUG: Raw match sample (first 500 chars): {str(sample)[:500]}")
     for match_info in raw_matches:
         formatted_match = format_match_data(match_info)
         formatted_matches.append(formatted_match)
