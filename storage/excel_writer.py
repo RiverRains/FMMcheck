@@ -388,19 +388,23 @@ def _append_issue_section(lines, title, issue_records):
             lines.append(line)
 
 
-def _build_slack_notification_text(competitions, total_matches, total_new_matches, new_issue_records, resolved_issue_records):
+def _build_slack_summary_text(competitions, total_matches, total_new_matches, total_open_issues, new_issue_records, resolved_issue_records):
     notify_resolved = should_notify_resolved_issues()
     utc_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = [
-        f"FMM alert update at {utc_ts}",
+        f"FMM run completed at {utc_ts}",
         f"• Competitions processed: {len(competitions)}",
         f"• Total matches in Excel: {total_matches}",
-        f"• New matches since last launch: {total_new_matches}",
+        f"• New matches added: {total_new_matches}",
+        f"• Open issues: {total_open_issues}",
         f"• New issues: {len(new_issue_records)}",
     ]
 
     if notify_resolved:
         lines.append(f"• Resolved issues: {len(resolved_issue_records)}")
+
+    if not new_issue_records and not (notify_resolved and resolved_issue_records):
+        lines.append("\nNo new issues detected.")
 
     _append_issue_section(lines, "New issues", new_issue_records)
     if notify_resolved:
@@ -568,37 +572,24 @@ def create_excel_file_with_competitions(competitions, output_path, whitelist_con
             if issue_key in next_resolved_issues
         ]
 
-        notify_resolved = should_notify_resolved_issues()
-        should_send_slack = bool(new_issue_records or (notify_resolved and resolved_issue_records))
-
-        if should_send_slack:
-            slack_text = _build_slack_notification_text(
-                competitions,
-                total_matches,
-                total_new_matches,
-                new_issue_records,
-                resolved_issue_records,
-            )
-            if send_slack_message(slack_text):
-                notification_state_mgr.save_state(
-                    {
-                        "open_issues": next_open_issues,
-                        "resolved_issues": next_resolved_issues,
-                    }
-                )
-                logger.info("Slack notification sent to #notifications-fmm")
-            else:
-                logger.info("Slack not sent; notification state preserved so alerts retry on the next run")
-        elif resolved_issue_keys:
+        slack_text = _build_slack_summary_text(
+            competitions,
+            total_matches,
+            total_new_matches,
+            len(next_open_issues),
+            new_issue_records,
+            resolved_issue_records,
+        )
+        if send_slack_message(slack_text):
             notification_state_mgr.save_state(
                 {
                     "open_issues": next_open_issues,
                     "resolved_issues": next_resolved_issues,
                 }
             )
-            logger.info("Issue state updated without Slack notification because only resolved issues changed")
+            logger.info("Slack summary sent to #notifications-fmm")
         else:
-            logger.info("No new Slack issue deltas detected; skipping Slack notification")
+            logger.info("Slack not sent; notification state preserved so alerts retry on the next run")
 
         return True
         
