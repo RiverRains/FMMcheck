@@ -340,8 +340,11 @@ async def main_async():
 
     output_path = os.getenv("OUTPUT_EXCEL_PATH", "football_competitions_fetch.xlsx")
 
-    # Try to download existing Excel from Google Drive (to read whitelist + preserve state)
+    # Download existing files from Google Drive (Excel + notification state for dedupe)
     download_from_gdrive(Path(output_path).name, output_path)
+    state_dir = Path(output_path).parent
+    notification_state_file = state_dir / "notification_state.json"
+    download_from_gdrive("notification_state.json", str(notification_state_file))
 
     # Try reading whitelist from the Excel file's Whitelist tab first
     whitelist_config = read_whitelist_from_excel(output_path)
@@ -377,6 +380,8 @@ async def main_async():
     if success:
         logger.info("FMM Automation run completed successfully.")
         upload_to_gdrive(output_path)
+        if notification_state_file.exists():
+            upload_to_gdrive(str(notification_state_file))
     else:
         logger.error("FMM Automation run failed to save output.")
 

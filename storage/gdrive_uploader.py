@@ -79,6 +79,12 @@ def download_from_gdrive(filename: str, local_path: str) -> bool:
         return False
 
 
+MIME_TYPES = {
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".json": "application/json",
+}
+
+
 def upload_to_gdrive(file_path: str) -> bool:
     """Upload file to Google Drive. Returns True on success, False on skip/failure."""
     folder_id = os.getenv("GDRIVE_FOLDER_ID")
@@ -97,10 +103,8 @@ def upload_to_gdrive(file_path: str) -> bool:
 
         service = build("drive", "v3", credentials=creds)
         filename = Path(file_path).name
-        media = MediaFileUpload(
-            file_path,
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        mimetype = MIME_TYPES.get(Path(file_path).suffix, "application/octet-stream")
+        media = MediaFileUpload(file_path, mimetype=mimetype)
 
         existing_id = _find_existing_file(service, folder_id, filename)
         if existing_id:
