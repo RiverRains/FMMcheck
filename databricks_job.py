@@ -248,8 +248,8 @@ async def process_whitelisted_competitions(client, whitelist_ids, whitelist_conf
     from datetime import datetime, timedelta
     today = datetime.now().date()
     one_week_ahead = today + timedelta(days=7)
-    one_week_ago = today - timedelta(days=7)
-    from_date = one_week_ago.strftime('%Y-%m-%d')
+    two_weeks_ago = today - timedelta(days=14)
+    from_date = two_weeks_ago.strftime('%Y-%m-%d')
     to_date = one_week_ahead.strftime('%Y-%m-%d')
 
     competition_results = []

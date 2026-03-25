@@ -77,7 +77,7 @@ def load_existing_matches(output_path):
 
     ws = wb["FMM automation"]
     today = datetime.now().date()
-    one_week_ago = today - timedelta(days=7)
+    two_weeks_ago = today - timedelta(days=14)
     current_competition_id = None
 
     for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
@@ -143,8 +143,8 @@ def load_existing_matches(output_path):
                 end_game_status = str(row[13] or '').strip()
 
                 match_date_obj = parse_date_string(date_formatted)
-                if match_date_obj and match_date_obj < one_week_ago and end_game_status.lower() == 'complete':
-                    logger.debug(f"Removing completed match {match_id} (older than 1 week)")
+                if match_date_obj and match_date_obj < two_weeks_ago and end_game_status.lower() == 'complete':
+                    logger.debug(f"Removing completed match {match_id} (older than 2 weeks)")
                     continue
 
                 existing_matches[current_competition_id][match_id] = {
