@@ -2,4 +2,9 @@ football_competitions_fetch.xlsx
 football_fetch_state.json
 .env
 league_cache.json
+notification_state.json
 __pycache__/
+*.pyc
+.DS_Store
+venv/
+service_account.json

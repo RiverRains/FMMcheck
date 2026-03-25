@@ -8,6 +8,7 @@ from config.settings import setup_logging, get_api_key, inject_databricks_secret
 from api.genius_client import GeniusClient
 from processing.match_evaluator import evaluate_webcast_data, evaluate_end_game_past_match_data, format_match_data
 from storage.excel_writer import create_excel_file_with_competitions
+from storage.gdrive_uploader import upload_to_gdrive
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +352,7 @@ async def main_async():
     
     if success:
         logger.info("FMM Automation run completed successfully.")
+        upload_to_gdrive(output_path)
     else:
         logger.error("FMM Automation run failed to save output.")
 
