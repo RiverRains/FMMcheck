@@ -168,7 +168,7 @@ async def process_single_match(client, match, competition_live_data_source, leag
 
                     if federation_code:
                         logger.debug(f"Match {match_id}: Running HS end-game check...")
-                        fed_slug = str(federation_code).strip().lower()
+                        fed_slug = str(federation_code).strip()
                         hs_data = await client.fetch_hs_summary_json(fed_slug, match_id)
 
                         if hs_data:

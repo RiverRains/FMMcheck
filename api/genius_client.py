@@ -35,7 +35,7 @@ _match_details_cache = {}
 LEAGUE_ABBREV_OVERRIDE = {
     61: "MFL",
     13: "LFF",
-    31: "CNCC",
+    31: "CPL",
     101: "CRC",
     56: "VPF",
     64: "LDF",
