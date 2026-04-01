@@ -2,7 +2,7 @@
 
 ## What It Does
 
-FMM automatically monitors football matches across selected competitions and checks whether key pre-game, live, and post-game data sources are properly set up. It runs every 30 minutes, generates an Excel report, and uploads it to a shared Google Drive folder. If new issues are found, a Slack notification is sent to `#notifications-fmm`.
+FMM automatically monitors football matches across selected competitions and checks whether key pre-game, live, and post-game data sources are properly set up. It runs every 30 minutes (perfectly), but could go up to 100 minutes, due to server heavy workload, generates an Excel report, and uploads it to a shared Google Drive folder. If new issues are found, a Slack notification is sent to `#notifications-fmm`.
 
 ---
 
