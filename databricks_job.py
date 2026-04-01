@@ -142,57 +142,62 @@ async def process_single_match(client, match, competition_live_data_source, leag
                 # Outside live window — do NOT overwrite; let merge preserve previous values
                 pass
             
-            # Run HS end-game check
-            kickoff_plus_2h = kickoff_time + timedelta(hours=2) if kickoff_time else None
-            
-            if kickoff_plus_2h is not None and kickoff_plus_2h <= now:
-                federation_code = league_abbrev
-                if not federation_code:
-                    # Need to find the code
-                    league_obj = match_data.get('league') or {} if match_data else {}
-                    federation_code = (
-                        match_data.get('leagueAbbrev') or match_data.get('abbreviation') or
-                        match_data.get('federationCode') or match_data.get('code') or match_data.get('slug') or
-                        league_obj.get('leagueAbbrev') or league_obj.get('abbreviation') or
-                        league_obj.get('federationCode') or league_obj.get('code') or league_obj.get('slug')
-                    ) if match_data else None
-                    
-                    if not federation_code:
-                        league_id = match_data.get('leagueId') or (match_data.get('league') or {}).get('leagueId') if match_data else None
-                        if league_id:
-                            federation_code = await client.fetch_league_details(league_id)
+            # Run HS end-game check (separate try/except so failures don't clobber other fields)
+            try:
+                kickoff_plus_2h = kickoff_time + timedelta(hours=2) if kickoff_time else None
 
-                if federation_code:
-                    logger.debug(f"Match {match_id}: Running HS end-game check...")
-                    fed_slug = str(federation_code).strip().lower()
-                    hs_data = await client.fetch_hs_summary_json(fed_slug, match_id)
-                    
-                    if hs_data:
-                        unregistered = await client.fetch_unregistered_players(match_id)
-                        end_game_status = evaluate_end_game_past_match_data(match_id, hs_data, unregistered)
+                if kickoff_plus_2h is not None and kickoff_plus_2h <= now:
+                    federation_code = league_abbrev
+                    if not federation_code:
+                        # Need to find the code
+                        league_obj = match_data.get('league') or {} if match_data else {}
+                        federation_code = (
+                            match_data.get('leagueAbbrev') or match_data.get('abbreviation') or
+                            match_data.get('federationCode') or match_data.get('code') or match_data.get('slug') or
+                            league_obj.get('leagueAbbrev') or league_obj.get('abbreviation') or
+                            league_obj.get('federationCode') or league_obj.get('code') or league_obj.get('slug')
+                        ) if match_data else None
+
+                        if not federation_code:
+                            league_id = match_data.get('leagueId') or (match_data.get('league') or {}).get('leagueId') if match_data else None
+                            if league_id:
+                                federation_code = await client.fetch_league_details(league_id)
+
+                    if federation_code:
+                        logger.debug(f"Match {match_id}: Running HS end-game check...")
+                        fed_slug = str(federation_code).strip().lower()
+                        hs_data = await client.fetch_hs_summary_json(fed_slug, match_id)
+
+                        if hs_data:
+                            unregistered = await client.fetch_unregistered_players(match_id)
+                            end_game_status = evaluate_end_game_past_match_data(match_id, hs_data, unregistered)
+                        else:
+                            end_game_status = "N/A"
+
+                        if end_game_status == "No":
+                            match['end_game_status'] = "Match check required"
+                            match['end_game_hs_url'] = f"https://hosted.dcd.shared.geniussports.com/{fed_slug}/en/match/{match_id}/summary"
+                        elif end_game_status == "N/A":
+                            match['end_game_status'] = "N/A - Match check required"
+                            match['end_game_hs_url'] = f"https://hosted.dcd.shared.geniussports.com/{fed_slug}/en/match/{match_id}/summary"
+                        else:
+                            match['end_game_status'] = end_game_status
                     else:
-                        end_game_status = "N/A"
-                    
-                    if end_game_status == "No":
-                        match['end_game_status'] = "Match check required"
-                        match['end_game_hs_url'] = f"https://hosted.dcd.shared.geniussports.com/{fed_slug}/en/match/{match_id}/summary"
-                    elif end_game_status == "N/A":
+                        logger.debug(f"Match {match_id}: HS check N/A (no federation code)")
                         match['end_game_status'] = "N/A - Match check required"
-                        match['end_game_hs_url'] = f"https://hosted.dcd.shared.geniussports.com/{fed_slug}/en/match/{match_id}/summary"
-                    else:
-                        match['end_game_status'] = end_game_status
                 else:
-                    logger.debug(f"Match {match_id}: HS check N/A (no federation code)")
-                    match['end_game_status'] = "N/A - Match check required"
-            else:
-                match['end_game_status'] = 'Too early'
+                    match['end_game_status'] = 'Too early'
+            except Exception as e:
+                logger.error(f"Match {match_id}: Failed processing end game check: {e}")
+                match['end_game_status'] = match.get('end_game_status', 'Too early')
+
         except Exception as e:
-            logger.error(f"Match {match_id}: Failed processing end game check: {e}")
-            match['end_game_status'] = 'Too early'
-            match['livestream_status'] = match.get('livestream_status', "N/A")
-            match['whst_live_data_source_match'] = match.get('whst_live_data_source_match', "N/A")
-            match['publish_connection_status'] = match.get('publish_connection_status', "N/A")
-            match['webcast_status'] = match.get('webcast_status', "N/A")
+            logger.error(f"Match {match_id}: Failed processing match checks: {e}")
+            match.setdefault('livestream_status', "N/A")
+            match.setdefault('whst_live_data_source_match', "N/A")
+            match.setdefault('publish_connection_status', "N/A")
+            match.setdefault('webcast_status', "N/A")
+            match.setdefault('end_game_status', 'Too early')
         
         return match
 
