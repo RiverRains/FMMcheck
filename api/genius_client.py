@@ -314,23 +314,23 @@ class GeniusClient:
             await self.init_session()
         try:
             async with self.session.get(url, timeout=30) as response:
+                logger.info(f"Webcast fetch for match {match_id}: HTTP {response.status}")
                 if response.status == 403:
-                    logger.debug(f"Webcast JSON not yet available for match {match_id} (HTTP 403)")
                     return None
                 elif response.status == 404:
-                    logger.debug(f"Webcast JSON not found for match {match_id} (HTTP 404)")
                     return None
                 response.raise_for_status()
                 return await response.json()
         except aiohttp.ClientResponseError as e:
+            logger.info(f"Webcast fetch error for match {match_id}: HTTP {e.status} {e.message}")
             if e.status in (429, 500, 502, 503, 504):
                 raise
             return None
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            logger.debug(f"Error fetching webcast JSON for {match_id}: {e}")
+            logger.info(f"Webcast fetch error for match {match_id}: {type(e).__name__}: {e}")
             raise
         except Exception as e:
-            logger.debug(f"Error fetching webcast JSON for {match_id}: {e}")
+            logger.info(f"Webcast fetch error for match {match_id}: {type(e).__name__}: {e}")
             raise
 
     @retry(
