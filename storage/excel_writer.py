@@ -184,7 +184,12 @@ def merge_matches_with_existing(new_matches, existing_matches, deleted_match_ids
         if existing_entry:
             merged_entry['coretools_check'] = existing_entry.get('coretools_check', '')
             merged_entry['league_column_note'] = existing_entry.get('league_column_note', '')
-            if 'webcast_status' not in match or not match.get('webcast_status'):
+            # Preserve previous statistician/webcast results when new run has no real value
+            new_pub = match.get('publish_connection_status', '')
+            if not new_pub or new_pub == 'N/A':
+                merged_entry['publish_connection_status'] = existing_entry.get('publish_connection_status', 'N/A')
+            new_wc = match.get('webcast_status', '')
+            if not new_wc or new_wc == 'N/A':
                 merged_entry['webcast_status'] = existing_entry.get('webcast_status', '')
         else:
             merged_entry.setdefault('coretools_check', '')

@@ -139,8 +139,8 @@ async def process_single_match(client, match, competition_live_data_source, leag
                 webcast_data = await client.fetch_webcast_json(match_id)
                 match['webcast_status'] = evaluate_webcast_data(match_id, webcast_data)
             else:
-                match['publish_connection_status'] = "N/A"
-                match['webcast_status'] = "N/A"
+                # Outside live window — do NOT overwrite; let merge preserve previous values
+                pass
             
             # Run HS end-game check
             kickoff_plus_2h = kickoff_time + timedelta(hours=2) if kickoff_time else None
