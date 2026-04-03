@@ -127,24 +127,27 @@ async def process_single_match(client, match, competition_live_data_source, leag
             
             if kickoff_time is not None:
                 time_diff = (now - kickoff_time).total_seconds() / 3600
+                match_started = time_diff >= 0
                 is_live_window = -2 <= time_diff <= 48
                 # Webcast data persists long after the match — check for any past match up to 14 days
-                is_webcast_window = -2 <= time_diff <= 336
+                is_webcast_window = time_diff >= -2 and time_diff <= 336
             else:
+                match_started = False
                 is_live_window = True
                 is_webcast_window = True
 
-            if is_live_window:
+            # Skip live and webcast checks for matches that haven't started yet
+            if match_started and is_live_window:
                 # Check publish connection (only meaningful around match time)
                 match['publish_connection_status'] = await client.check_publish_connection(match_id)
                 logger.info(f"Match {match_id}: publish_connection={match['publish_connection_status']}")
 
-            if is_webcast_window:
+            if match_started and is_webcast_window:
                 # Check webcast (data stays available long after the match)
                 webcast_data = await client.fetch_webcast_json(match_id)
                 match['webcast_status'] = evaluate_webcast_data(match_id, webcast_data)
                 logger.info(f"Match {match_id}: webcast_status={match['webcast_status']}")
-            
+
             # Run HS end-game check (separate try/except so failures don't clobber other fields)
             try:
                 kickoff_plus_2h = kickoff_time + timedelta(hours=2) if kickoff_time else None

@@ -143,8 +143,8 @@ def load_existing_matches(output_path):
                 end_game_status = str(row[13] or '').strip()
 
                 match_date_obj = parse_date_string(date_formatted)
-                if match_date_obj and match_date_obj < two_weeks_ago and end_game_status.lower() == 'complete':
-                    logger.debug(f"Removing completed match {match_id} (older than 2 weeks)")
+                if match_date_obj and match_date_obj < two_weeks_ago:
+                    logger.info(f"Removing match {match_id} (older than 2 weeks, date: {date_formatted})")
                     continue
 
                 existing_matches[current_competition_id][match_id] = {
@@ -585,16 +585,19 @@ def create_excel_file_with_competitions(competitions, output_path, whitelist_con
             new_issue_records,
             resolved_issue_records,
         )
-        if send_slack_message(slack_text):
-            notification_state_mgr.save_state(
-                {
-                    "open_issues": next_open_issues,
-                    "resolved_issues": next_resolved_issues,
-                }
-            )
+        slack_sent = send_slack_message(slack_text)
+        if slack_sent:
             logger.info("Slack summary sent to #notifications-fmm")
         else:
-            logger.info("Slack not sent; notification state preserved so alerts retry on the next run")
+            logger.info("Slack not sent; will retry new issues on next run")
+
+        # Always save notification state so deduplication works across runs
+        notification_state_mgr.save_state(
+            {
+                "open_issues": next_open_issues,
+                "resolved_issues": next_resolved_issues,
+            }
+        )
 
         return True
         

@@ -47,7 +47,7 @@ def collect_check_issues(competitions):
                 if (match.get("publish_connection_status") or "").strip() == "No":
                     failed.append("Live game Statistician check")
                 status = (match.get("webcast_status") or "").strip()
-                if status in ("No", "N/A"):
+                if status == "No":
                     failed.append("Live game Webcast check")
                     mid = match.get("matchId", "")
                     league_abbrev = (comp.get("leagueAbbrev") or "").strip().lower()
