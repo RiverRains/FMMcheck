@@ -549,6 +549,8 @@ def create_excel_file_with_competitions(competitions, output_path, whitelist_con
         previous_resolved_issues = notification_state.get("resolved_issues", {})
         now_iso = _utc_now_iso()
 
+        logger.info(f"Notification state loaded: {len(previous_open_issues)} previous open issues, {len(previous_resolved_issues)} previously resolved")
+
         total_matches = sum(len(c.get('matches', [])) for c in competitions)
         issue_groups = collect_check_issues(competitions)
         current_issue_map = flatten_check_issues(issue_groups)
@@ -556,6 +558,8 @@ def create_excel_file_with_competitions(competitions, output_path, whitelist_con
         previous_issue_keys = set(previous_open_issues)
         new_issue_keys = current_issue_keys - previous_issue_keys
         resolved_issue_keys = previous_issue_keys - current_issue_keys
+
+        logger.info(f"Issue diff: {len(current_issue_keys)} current, {len(previous_issue_keys)} previous, {len(new_issue_keys)} new, {len(resolved_issue_keys)} resolved")
 
         next_open_issues = _build_open_issue_state(current_issue_map, previous_open_issues, now_iso)
         next_resolved_issues = _build_resolved_issue_state(
