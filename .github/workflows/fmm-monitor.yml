@@ -23,6 +23,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Restore notification state cache
+        uses: actions/cache@v4
+        with:
+          path: notification_state.json
+          key: fmm-notification-state
+          restore-keys: fmm-notification-state
+
       - name: Run FMM monitor
         env:
           GENIUS_API_KEY: ${{ secrets.GENIUS_API_KEY }}
@@ -32,6 +39,13 @@ jobs:
           GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: python databricks_job.py
+
+      - name: Save notification state cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: notification_state.json
+          key: fmm-notification-state
 
       - name: Upload Excel as artifact
         if: always()
