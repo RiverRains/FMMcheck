@@ -351,11 +351,19 @@ async def main_async():
 
     output_path = os.getenv("OUTPUT_EXCEL_PATH", "football_competitions_fetch.xlsx")
 
-    # Download existing files from Google Drive (Excel + notification state for dedupe)
+    # Download Excel from Google Drive to preserve manual edits between runs
     download_from_gdrive(Path(output_path).name, output_path)
+
+    # Notification state is managed by GitHub Actions cache (see workflow).
+    # Only download from Drive if cache did NOT already restore it — avoids
+    # overwriting a fresher cache copy with a stale Drive copy.
     state_dir = Path(output_path).parent
     notification_state_file = state_dir / "notification_state.json"
-    download_from_gdrive("notification_state.json", str(notification_state_file))
+    if not notification_state_file.exists():
+        logger.info("No cached notification state found, downloading from Google Drive.")
+        download_from_gdrive("notification_state.json", str(notification_state_file))
+    else:
+        logger.info("Using cached notification state (skipping Drive download).")
 
     # Try reading whitelist from the Excel file's Whitelist tab first
     whitelist_config = read_whitelist_from_excel(output_path)
