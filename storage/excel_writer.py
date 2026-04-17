@@ -191,6 +191,12 @@ def merge_matches_with_existing(new_matches, existing_matches, deleted_match_ids
             new_wc = match.get('webcast_status', '')
             if not new_wc or new_wc == 'N/A':
                 merged_entry['webcast_status'] = existing_entry.get('webcast_status', '')
+            # Preserve previous end_game_status when new check was inconclusive
+            new_eg = match.get('end_game_status', '')
+            if not new_eg or new_eg in ('Too early', 'N/A - Match check required'):
+                prev_eg = existing_entry.get('end_game_status', '')
+                if prev_eg and prev_eg not in ('Too early', ''):
+                    merged_entry['end_game_status'] = prev_eg
         else:
             merged_entry.setdefault('coretools_check', '')
             merged_entry.setdefault('league_column_note', '')

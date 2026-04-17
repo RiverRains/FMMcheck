@@ -195,7 +195,10 @@ async def process_single_match(client, match, competition_live_data_source, leag
                     match['end_game_status'] = 'Too early'
             except Exception as e:
                 logger.error(f"Match {match_id}: Failed processing end game check: {e}")
-                match['end_game_status'] = match.get('end_game_status', 'Too early')
+                # Keep existing status if already set; if unknown, treat as needing a check
+                # rather than 'Too early' (which would silently clear the issue from the state)
+                existing_eg = match.get('end_game_status', '')
+                match['end_game_status'] = existing_eg if existing_eg else 'N/A - Match check required'
 
         except Exception as e:
             logger.error(f"Match {match_id}: Failed processing match checks: {e}")
