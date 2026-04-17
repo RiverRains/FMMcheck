@@ -560,6 +560,10 @@ def create_excel_file_with_competitions(competitions, output_path, whitelist_con
         resolved_issue_keys = previous_issue_keys - current_issue_keys
 
         logger.info(f"Issue diff: {len(current_issue_keys)} current, {len(previous_issue_keys)} previous, {len(new_issue_keys)} new, {len(resolved_issue_keys)} resolved")
+        for key in sorted(new_issue_keys):
+            logger.info(f"NEW issue: {key}")
+        for key in sorted(resolved_issue_keys):
+            logger.info(f"RESOLVED issue: {key}")
 
         next_open_issues = _build_open_issue_state(current_issue_map, previous_open_issues, now_iso)
         next_resolved_issues = _build_resolved_issue_state(
