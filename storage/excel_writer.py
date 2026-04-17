@@ -433,6 +433,7 @@ def create_excel_file_with_competitions(competitions, output_path, whitelist_con
         state_mgr = StateManager(output_path)
         state = state_mgr.load_fetch_state()
         notification_state_mgr = NotificationStateManager(output_path)
+        logger.info(f"Notification state path: {notification_state_mgr.state_path} (exists={notification_state_mgr.state_path.exists()})")
         notification_state = notification_state_mgr.load_state()
         notification_state_mgr.ensure_state_file()
         last_written = state.get("last_written", {})
