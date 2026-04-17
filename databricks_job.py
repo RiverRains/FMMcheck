@@ -357,16 +357,20 @@ async def main_async():
     # Download Excel from Google Drive to preserve manual edits between runs
     download_from_gdrive(Path(output_path).name, output_path)
 
-    # Notification state is managed by GitHub Actions cache (see workflow).
-    # Only download from Drive if cache did NOT already restore it — avoids
-    # overwriting a fresher cache copy with a stale Drive copy.
+    # Google Drive is the authoritative source for notification state — it is
+    # updated at the end of every successful run.  Always download from Drive
+    # so that a stale GitHub Actions cache snapshot never silently wins.
+    # The cache (restored by the workflow) acts only as a fallback when Drive
+    # is unavailable.
     state_dir = Path(output_path).parent
     notification_state_file = state_dir / "notification_state.json"
-    if not notification_state_file.exists():
-        logger.info("No cached notification state found, downloading from Google Drive.")
-        download_from_gdrive("notification_state.json", str(notification_state_file))
+    drive_state_ok = download_from_gdrive("notification_state.json", str(notification_state_file))
+    if drive_state_ok:
+        logger.info("Notification state downloaded from Google Drive (authoritative source).")
+    elif notification_state_file.exists():
+        logger.info("Drive unavailable — using cached notification state as fallback.")
     else:
-        logger.info("Using cached notification state (skipping Drive download).")
+        logger.info("No prior notification state found — starting fresh this run.")
 
     # Try reading whitelist from the Excel file's Whitelist tab first
     whitelist_config = read_whitelist_from_excel(output_path)
