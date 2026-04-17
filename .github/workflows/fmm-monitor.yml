@@ -23,18 +23,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Combined restore+save in a single step.
-      # Key includes run_attempt so re-runs of the same job never collide with an
-      # already-saved key (which would cause cache/save to silently skip).
-      # save-always: true guarantees the POST step uploads the file even when the
-      # primary key matched or the run step failed.
-      - name: Restore / save notification state
-        uses: actions/cache@v4
+      # Restore notification state from the most recent previous run.
+      # Key includes run_attempt so that job re-runs get a fresh unique key —
+      # cache/save silently skips if the key already exists, so without
+      # run_attempt a re-run would never persist the updated state.
+      - name: Restore notification state
+        uses: actions/cache/restore@v4
         with:
           path: notification_state.json
           key: fmm-notification-state-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: fmm-notification-state
-          save-always: true
 
       - name: Inspect notification state (pre-run)
         run: |
@@ -78,6 +76,13 @@ jobs:
           else
             echo "notification_state.json missing after run!"
           fi
+
+      - name: Save notification state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: notification_state.json
+          key: fmm-notification-state-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload artifacts
         if: always()
