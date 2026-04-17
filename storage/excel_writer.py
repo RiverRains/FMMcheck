@@ -343,9 +343,65 @@ def _build_open_issue_state(current_issue_map, previous_open_issues, now_iso):
             **issue,
             "first_seen_at": previous_issue.get("first_seen_at", now_iso),
             "last_seen_at": now_iso,
+            # Preserve when this issue was last sent to Slack (used as cooldown guard)
+            "notified_at": previous_issue.get("notified_at"),
         }
 
     return open_issue_state
+
+
+# Minimum hours between two Slack alerts for the same issue.
+# In normal operation (state persists) this is never reached — issues are only
+# alerted the first time they appear.  When cache/Drive fails and the state
+# resets, this prevents a flood of duplicates for at least this many hours.
+_NOTIFICATION_COOLDOWN_HOURS = 2
+
+
+def _filter_notifiable(new_issue_keys, next_open_issues, now_iso):
+    """
+    From the set of 'new' issue keys return only those that are actually
+    notifiable — i.e. not silenced by the cooldown.
+
+    In the happy path the cooldown is never triggered because new_issue_keys
+    only contains issues that weren't in the previous state (so notified_at is
+    None for all of them).  The cooldown fires only when:
+      • State was lost (cache eviction / Drive failure) AND
+      • The issue was already sent to Slack recently and its notified_at survived
+        in some partial state snapshot.
+    """
+    from datetime import timedelta, timezone
+    from storage.notification_state import _parse_timestamp
+
+    if not new_issue_keys:
+        return set()
+
+    now = datetime.fromisoformat(now_iso)
+    cooldown = timedelta(hours=_NOTIFICATION_COOLDOWN_HOURS)
+    notifiable = set()
+
+    for key in new_issue_keys:
+        notified_at_str = (next_open_issues.get(key) or {}).get("notified_at")
+        if not notified_at_str:
+            notifiable.add(key)
+            continue
+        notified_at = _parse_timestamp(notified_at_str)
+        if notified_at is None:
+            notifiable.add(key)
+            continue
+        # Normalise to aware datetime for safe comparison
+        if notified_at.tzinfo is None:
+            notified_at = notified_at.replace(tzinfo=timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        if (now - notified_at) >= cooldown:
+            notifiable.add(key)
+        else:
+            logger.info(
+                "Skipping re-notification for %s (last notified %s, cooldown %dh)",
+                key, notified_at_str, _NOTIFICATION_COOLDOWN_HOURS,
+            )
+
+    return notifiable
 
 
 def _build_resolved_issue_state(previous_resolved_issues, previous_open_issues, current_issue_map, resolved_issue_keys, now_iso):
@@ -585,7 +641,17 @@ def create_excel_file_with_competitions(competitions, output_path, whitelist_con
             get_notification_state_retention_days(),
         )
 
-        new_issue_records = [current_issue_map[issue_key] for issue_key in new_issue_keys]
+        # Apply cooldown: drop issues whose notified_at is still within the
+        # quiet window (protects against re-spam when state persistence fails).
+        notifiable_issue_keys = _filter_notifiable(new_issue_keys, next_open_issues, now_iso)
+        skipped = new_issue_keys - notifiable_issue_keys
+        if skipped:
+            logger.info(
+                "%d issue(s) suppressed by %dh cooldown: %s",
+                len(skipped), _NOTIFICATION_COOLDOWN_HOURS, sorted(skipped),
+            )
+
+        new_issue_records = [current_issue_map[issue_key] for issue_key in notifiable_issue_keys]
         resolved_issue_records = [
             next_resolved_issues[issue_key]
             for issue_key in resolved_issue_keys
@@ -603,6 +669,11 @@ def create_excel_file_with_competitions(competitions, output_path, whitelist_con
         slack_sent = send_slack_message(slack_text)
         if slack_sent:
             logger.info("Slack summary sent to #notifications-fmm")
+            # Stamp notified_at on every issue that was just alerted so the
+            # cooldown guard works on the next run.
+            for issue_key in notifiable_issue_keys:
+                if issue_key in next_open_issues:
+                    next_open_issues[issue_key]["notified_at"] = now_iso
         else:
             logger.info("Slack not sent; will retry new issues on next run")
 

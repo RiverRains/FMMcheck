@@ -23,12 +23,34 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore notification state cache
-        uses: actions/cache/restore@v4
+      # Combined restore+save in a single step.
+      # Key includes run_attempt so re-runs of the same job never collide with an
+      # already-saved key (which would cause cache/save to silently skip).
+      # save-always: true guarantees the POST step uploads the file even when the
+      # primary key matched or the run step failed.
+      - name: Restore / save notification state
+        uses: actions/cache@v4
         with:
           path: notification_state.json
-          key: fmm-notification-state-${{ github.run_id }}
+          key: fmm-notification-state-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: fmm-notification-state
+          save-always: true
+
+      - name: Inspect notification state (pre-run)
+        run: |
+          if [ -f notification_state.json ]; then
+            SIZE=$(wc -c < notification_state.json)
+            echo "notification_state.json present — ${SIZE} bytes"
+            python3 - <<'EOF'
+          import json
+          with open("notification_state.json") as f:
+              d = json.load(f)
+          print(f"  open_issues   : {len(d.get('open_issues', {}))}")
+          print(f"  resolved_issues: {len(d.get('resolved_issues', {}))}")
+          EOF
+          else
+            echo "notification_state.json not found — will start fresh"
+          fi
 
       - name: Run FMM monitor
         env:
@@ -40,17 +62,30 @@ jobs:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: python databricks_job.py
 
-      - name: Save notification state cache
+      - name: Inspect notification state (post-run)
         if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: notification_state.json
-          key: fmm-notification-state-${{ github.run_id }}
+        run: |
+          if [ -f notification_state.json ]; then
+            SIZE=$(wc -c < notification_state.json)
+            echo "notification_state.json after run — ${SIZE} bytes"
+            python3 - <<'EOF'
+          import json
+          with open("notification_state.json") as f:
+              d = json.load(f)
+          print(f"  open_issues   : {len(d.get('open_issues', {}))}")
+          print(f"  resolved_issues: {len(d.get('resolved_issues', {}))}")
+          EOF
+          else
+            echo "notification_state.json missing after run!"
+          fi
 
-      - name: Upload Excel as artifact
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: fmm-output
-          path: football_competitions_fetch.xlsx
+          path: |
+            football_competitions_fetch.xlsx
+            notification_state.json
           retention-days: 7
+          if-no-files-found: warn
