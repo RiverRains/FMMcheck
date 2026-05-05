@@ -97,6 +97,11 @@ def load_existing_matches(output_path):
             continue
 
         if current_competition_id:
+            # openpyxl read-only mode omits empty trailing cells, so a row may
+            # be shorter than the sheet's column count.  Pad to 14 so all
+            # column accesses below are safe.
+            if len(row) < 14:
+                row = row + (None,) * (14 - len(row))
             match_id_cell = row[6]
             if match_id_cell:
                 match_id = str(match_id_cell).strip()
@@ -688,7 +693,7 @@ def create_excel_file_with_competitions(competitions, output_path, whitelist_con
         return True
         
     except Exception as e:
-        logger.error(f"Error creating Excel file: {str(e)}")
+        logger.exception(f"Error creating Excel file: {str(e)}")
         return False
 
 
