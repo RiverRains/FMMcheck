@@ -311,16 +311,10 @@ def _check_basic_stats(data):
                 
     return has_team_names, has_time, has_scores, team1_id, team2_id
 
-def _compare_summary_to_boxscore(data, team1_id, team2_id, unregistered_players):
+def _compare_summary_to_boxscore(data, team1_id, team2_id):
     actions_valid = True
     actions_issues = []
-    
-    unreg_by_team = defaultdict(list)
-    if unregistered_players:
-        for p in unregistered_players:
-            if isinstance(p, dict) and p.get('teamId'):
-                unreg_by_team[p['teamId']].append(p)
-                
+
     comparison_stats = data.get('comparisonStats', []) or []
     boxscore_home = data.get('boxscore_hometeam', []) or []
     boxscore_away = data.get('boxscore_awayteam', []) or []
@@ -357,22 +351,20 @@ def _compare_summary_to_boxscore(data, team1_id, team2_id, unregistered_players)
         sum_g = summary.get('sGoals', 0)
         sum_yc = summary.get('sYellowCards', 0)
         sum_rc = summary.get('sRedCards', 0)
-        
+
         pl_g = sum(p.get('sGoals', 0) for p in boxscore_players if isinstance(p, dict) and p.get('teamId') == t_id)
         pl_yc = sum(p.get('sYellowCards', 0) for p in boxscore_players if isinstance(p, dict) and p.get('teamId') == t_id)
         pl_rc = sum(p.get('sRedCards', 0) for p in boxscore_players if isinstance(p, dict) and p.get('teamId') == t_id)
-        
-        unreg_cnt = len(unreg_by_team.get(t_id, []))
-        
+
         if sum_g > pl_g:
             actions_valid = False
-            actions_issues.append(f"Team {t_id}: {sum_g} goals vs {pl_g} in boxscore" + (" (unregistered)" if unreg_cnt else ""))
+            actions_issues.append(f"Team {t_id}: {sum_g} goals vs {pl_g} in boxscore")
         if sum_yc > pl_yc:
             actions_valid = False
-            actions_issues.append(f"Team {t_id}: {sum_yc} yellow cards vs {pl_yc} in boxscore" + (" (unregistered)" if unreg_cnt else ""))
+            actions_issues.append(f"Team {t_id}: {sum_yc} yellow cards vs {pl_yc} in boxscore")
         if sum_rc > pl_rc:
             actions_valid = False
-            actions_issues.append(f"Team {t_id}: {sum_rc} red cards vs {pl_rc} in boxscore" + (" (unregistered)" if unreg_cnt else ""))
+            actions_issues.append(f"Team {t_id}: {sum_rc} red cards vs {pl_rc} in boxscore")
             
     if not comparison_stats:
         actions_valid = True
@@ -411,17 +403,18 @@ def _validate_substitutions(boxscore_home, boxscore_away):
                     
     return subs_valid, subs_issues
 
-def evaluate_end_game_past_match_data(match_id, data, unregistered_players=None):
+def evaluate_end_game_past_match_data(match_id, data):
     """
     After a match is finished, check if all the data is complete and correct.
+    Only checks unassigned actions (goals/cards in summary vs boxscore) and substitution balance.
     Returns "Yes", "No", or "N/A".
     """
     if not data:
         return "N/A"
-    
+
     try:
         has_team_names, has_time, has_scores, team1_id, team2_id = _check_basic_stats(data)
-        actions_valid, actions_issues, boxscore_home, boxscore_away = _compare_summary_to_boxscore(data, team1_id, team2_id, unregistered_players)
+        actions_valid, actions_issues, boxscore_home, boxscore_away = _compare_summary_to_boxscore(data, team1_id, team2_id)
         subs_valid, subs_issues = _validate_substitutions(boxscore_home, boxscore_away)
         
         all_issues = actions_issues + subs_issues

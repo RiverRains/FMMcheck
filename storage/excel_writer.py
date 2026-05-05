@@ -411,6 +411,46 @@ def _filter_notifiable(new_issue_keys, next_open_issues, now_iso):
     return notifiable
 
 
+def _group_issues_by_match(issue_records):
+    """
+    Group a flat list of issue records by (competition_id, match_id), preserving
+    league/competition sort order so the Slack messages arrive in a predictable sequence.
+    Returns an OrderedDict: (competition_id, match_id) → [issue, ...].
+    """
+    from collections import OrderedDict
+    grouped = OrderedDict()
+    for issue in _sorted_issue_records(issue_records):
+        key = (issue.get("competition_id", ""), issue.get("match_id", ""))
+        grouped.setdefault(key, []).append(issue)
+    return grouped
+
+
+def _build_match_issue_text(issue_records):
+    """
+    Build the Slack message text for a single match's issues.
+    Each match is posted as its own message so teammates can react per match.
+    """
+    if not issue_records:
+        return ""
+    first = issue_records[0]
+    lines = [
+        f"\u26a0\ufe0f *{first.get('game', 'Match')}* (Match ID {first.get('match_id', '')})",
+        (
+            f"*{first.get('league_name', '')}* (League ID {first.get('league_id', '')}) \u2014 "
+            f"*{first.get('competition_name', '')}* (Competition ID {first.get('competition_id', '')})"
+        ),
+        "Issues:",
+    ]
+    for issue in issue_records:
+        line = f"  \u2022 {issue.get('check_name', '')}"
+        detail_url = issue.get("detail_url", "")
+        detail_label = issue.get("detail_label", "")
+        if detail_url and detail_label:
+            line += f" | {detail_label}: <{detail_url}>"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _build_resolved_issue_state(previous_resolved_issues, previous_open_issues, current_issue_map, resolved_issue_keys, now_iso):
     resolved_issue_state = {
         issue_key: issue
@@ -462,7 +502,13 @@ def _append_issue_section(lines, title, issue_records):
             lines.append(line)
 
 
-def _build_slack_summary_text(competitions, total_matches, total_new_matches, total_open_issues, new_issue_records, resolved_issue_records):
+def _build_slack_summary_text(competitions, total_matches, total_new_matches, total_open_issues, new_issue_count, resolved_issue_records):
+    """
+    Build the summary header message sent once per run.
+    New-issue details are NOT included here — they are posted as individual
+    per-match messages so the team can react to each one separately.
+    Resolved-issue details (when enabled) stay in the summary.
+    """
     notify_resolved = should_notify_resolved_issues()
     utc_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = [
@@ -471,16 +517,15 @@ def _build_slack_summary_text(competitions, total_matches, total_new_matches, to
         f"• Total matches in Excel: {total_matches}",
         f"• New matches added: {total_new_matches}",
         f"• Open issues: {total_open_issues}",
-        f"• New issues: {len(new_issue_records)}",
+        f"• New issues: {new_issue_count}",
     ]
 
     if notify_resolved:
         lines.append(f"• Resolved issues: {len(resolved_issue_records)}")
 
-    if not new_issue_records and not (notify_resolved and resolved_issue_records):
+    if new_issue_count == 0 and not (notify_resolved and resolved_issue_records):
         lines.append("\nNo new issues detected.")
 
-    _append_issue_section(lines, "New issues", new_issue_records)
     if notify_resolved:
         _append_issue_section(lines, "Resolved issues", resolved_issue_records)
 
@@ -665,24 +710,41 @@ def create_excel_file_with_competitions(competitions, output_path, whitelist_con
             if issue_key in next_resolved_issues
         ]
 
-        slack_text = _build_slack_summary_text(
+        # --- Slack notifications ---
+        # 1. Send a summary header once per run (stats only, no issue details).
+        summary_text = _build_slack_summary_text(
             competitions,
             total_matches,
             total_new_matches,
             len(next_open_issues),
-            new_issue_records,
+            len(notifiable_issue_keys),
             resolved_issue_records,
         )
-        slack_sent = send_slack_message(slack_text)
-        if slack_sent:
-            logger.info("Slack summary sent to #notifications-fmm")
-            # Stamp notified_at on every issue that was just alerted so the
-            # cooldown guard works on the next run.
-            for issue_key in notifiable_issue_keys:
+        send_slack_message(summary_text)
+        logger.info("Slack summary sent to #notifications-fmm")
+
+        # 2. Send one message per match that has new issues so the team can
+        #    react to (✅ / 👀 / etc.) each match individually.
+        successfully_notified_keys = set()
+        if new_issue_records:
+            for issues in _group_issues_by_match(new_issue_records).values():
+                match_text = _build_match_issue_text(issues)
+                if match_text and send_slack_message(match_text):
+                    for issue in issues:
+                        successfully_notified_keys.add(issue["issue_key"])
+
+        if successfully_notified_keys:
+            logger.info(
+                "Slack per-match messages sent for %d issue(s) across %d match(es)",
+                len(successfully_notified_keys),
+                len(_group_issues_by_match(new_issue_records)),
+            )
+            # Stamp notified_at so the cooldown guard works on the next run.
+            for issue_key in successfully_notified_keys:
                 if issue_key in next_open_issues:
                     next_open_issues[issue_key]["notified_at"] = now_iso
-        else:
-            logger.info("Slack not sent; will retry new issues on next run")
+        elif new_issue_records:
+            logger.info("Per-match Slack messages not sent; will retry on next run")
 
         # Always save notification state so deduplication works across runs
         notification_state_mgr.save_state(

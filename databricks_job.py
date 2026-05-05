@@ -149,10 +149,20 @@ async def process_single_match(client, match, competition_live_data_source, leag
                 logger.info(f"Match {match_id}: webcast_status={match['webcast_status']}")
 
             # Run HS end-game check (separate try/except so failures don't clobber other fields)
+            # Only runs for matches that have ended (kickoff + 2h) and within 5 hours of ending
+            # (kickoff + 7h total).  Outside that window the existing status is preserved by
+            # merge_matches_with_existing so "Match check required" stays visible in the sheet.
             try:
-                kickoff_plus_2h = kickoff_time + timedelta(hours=2) if kickoff_time else None
+                estimated_end = kickoff_time + timedelta(hours=2) if kickoff_time else None
+                check_cutoff  = kickoff_time + timedelta(hours=7) if kickoff_time else None
 
-                if kickoff_plus_2h is not None and kickoff_plus_2h <= now:
+                in_check_window = (
+                    estimated_end is not None
+                    and estimated_end <= now
+                    and (check_cutoff is None or now <= check_cutoff)
+                )
+
+                if in_check_window:
                     federation_code = league_abbrev
                     if not federation_code:
                         # Need to find the code
@@ -175,8 +185,7 @@ async def process_single_match(client, match, competition_live_data_source, leag
                         hs_data = await client.fetch_hs_summary_json(fed_slug, match_id)
 
                         if hs_data:
-                            unregistered = await client.fetch_unregistered_players(match_id)
-                            end_game_status = evaluate_end_game_past_match_data(match_id, hs_data, unregistered)
+                            end_game_status = evaluate_end_game_past_match_data(match_id, hs_data)
                         else:
                             end_game_status = "N/A"
 
@@ -191,8 +200,13 @@ async def process_single_match(client, match, competition_live_data_source, leag
                     else:
                         logger.debug(f"Match {match_id}: HS check N/A (no federation code)")
                         match['end_game_status'] = "N/A - Match check required"
-                else:
+                elif estimated_end is None or estimated_end > now:
+                    # Match hasn't ended yet
                     match['end_game_status'] = 'Too early'
+                else:
+                    # Past the 5-hour window — set blank so merge_matches_with_existing
+                    # preserves whatever status was recorded during the active window.
+                    match['end_game_status'] = ''
             except Exception as e:
                 logger.error(f"Match {match_id}: Failed processing end game check: {e}")
                 # Keep existing status if already set; if unknown, treat as needing a check
