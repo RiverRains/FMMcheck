@@ -81,6 +81,8 @@ def load_existing_matches(output_path):
     current_competition_id = None
 
     for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        if not row:  # openpyxl read-only can yield zero-length tuples for blank rows
+            continue
         cell_a = row[0]
         if cell_a == 'League':
             continue
