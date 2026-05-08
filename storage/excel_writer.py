@@ -58,6 +58,34 @@ def match_sort_key(match):
     match_id = str(match.get('matchId', ''))
     return (date_obj, time_obj, match_id)
 
+def _normalize_match_id(raw):
+    """
+    Normalise a match ID to a plain integer string regardless of how it was
+    stored in Excel or returned by the API:
+      - float  379901.0  →  "379901"
+      - str   "379901.0" →  "379901"
+      - int    379901    →  "379901"
+      - str   "379901"   →  "379901"
+      - non-numeric str  →  returned as-is (stripped)
+    """
+    if raw is None:
+        return ''
+    if isinstance(raw, float):
+        return str(int(raw)) if raw.is_integer() else str(raw).strip()
+    s = str(raw).strip()
+    if not s:
+        return ''
+    # Handle "379901.0"-style strings
+    if '.' in s:
+        try:
+            f = float(s)
+            if f.is_integer():
+                return str(int(f))
+        except (ValueError, TypeError):
+            pass
+    return s
+
+
 def load_existing_matches(output_path):
     existing_matches = {}
     target_path = Path(output_path)
@@ -106,11 +134,7 @@ def load_existing_matches(output_path):
                 row = row + (None,) * (14 - len(row))
             match_id_cell = row[6]
             if match_id_cell:
-                # Excel stores integers as floats; normalise 379901.0 → "379901"
-                if isinstance(match_id_cell, float) and match_id_cell.is_integer():
-                    match_id = str(int(match_id_cell))
-                else:
-                    match_id = str(match_id_cell).strip()
+                match_id = _normalize_match_id(match_id_cell)
 
                 league_cell = row[0]
                 league_column_note = str(league_cell).strip() if league_cell else ''
@@ -178,17 +202,19 @@ def load_existing_matches(output_path):
     return existing_matches
 
 def merge_matches_with_existing(new_matches, existing_matches, deleted_match_ids=None):
-    merged_matches_map = {str(mid): existing.copy() for mid, existing in existing_matches.items()}
-    deleted_set = {str(mid).strip() for mid in (deleted_match_ids or [])}
+    # Rebuild existing map with normalised keys so "379901.0" and "379901" unify
+    normalised_existing = {_normalize_match_id(mid): data for mid, data in existing_matches.items()}
+    merged_matches_map = {mid: data.copy() for mid, data in normalised_existing.items() if mid}
+    deleted_set = {_normalize_match_id(mid) for mid in (deleted_match_ids or []) if mid}
 
     for match in new_matches:
-        match_id = str(match.get('matchId', '')).strip()
+        match_id = _normalize_match_id(match.get('matchId', ''))
         if not match_id:
             continue
-        if match_id in deleted_set and match_id not in existing_matches:
+        if match_id in deleted_set and match_id not in normalised_existing:
             continue
 
-        existing_entry = existing_matches.get(match_id)
+        existing_entry = normalised_existing.get(match_id)
         merged_entry = existing_entry.copy() if existing_entry else {}
         merged_entry.update(match)
 
@@ -609,12 +635,12 @@ def create_excel_file_with_competitions(competitions, output_path, whitelist_con
                 state["deleted"][comp_id_str] = []
             competition['matches'] = merged_matches
             
-            prev_written = {str(x).strip() for x in (last_written.get(comp_id_str, []) or [])}
-            total_new_matches += sum(1 for m in merged_matches if str(m.get('matchId', '')).strip() not in prev_written)
-            state["last_written"][comp_id_str] = [str(m.get('matchId', '')) for m in merged_matches if m.get('matchId')]
+            prev_written = {_normalize_match_id(x) for x in (last_written.get(comp_id_str, []) or [])}
+            total_new_matches += sum(1 for m in merged_matches if _normalize_match_id(m.get('matchId', '')) not in prev_written)
+            state["last_written"][comp_id_str] = [_normalize_match_id(m.get('matchId', '')) for m in merged_matches if m.get('matchId')]
 
             if merged_matches:
-                new_match_ids = {str(match.get('matchId', '')).strip() for match in matches if match.get('matchId')}
+                new_match_ids = {_normalize_match_id(match.get('matchId', '')) for match in matches if match.get('matchId')}
                 total_matches = len(merged_matches)
                 preserved_matches = total_matches - len(new_match_ids)
                 logger.info(f"Adding {total_matches} matches to table (new/updated: {len(new_match_ids)}, carried over: {max(preserved_matches, 0)})")
