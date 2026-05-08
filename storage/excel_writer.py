@@ -106,7 +106,11 @@ def load_existing_matches(output_path):
                 row = row + (None,) * (14 - len(row))
             match_id_cell = row[6]
             if match_id_cell:
-                match_id = str(match_id_cell).strip()
+                # Excel stores integers as floats; normalise 379901.0 → "379901"
+                if isinstance(match_id_cell, float) and match_id_cell.is_integer():
+                    match_id = str(int(match_id_cell))
+                else:
+                    match_id = str(match_id_cell).strip()
 
                 league_cell = row[0]
                 league_column_note = str(league_cell).strip() if league_cell else ''
@@ -622,7 +626,13 @@ def create_excel_file_with_competitions(competitions, output_path, whitelist_con
                     ws.cell(row=current_row, column=4, value=match.get('time_utc_formatted', ''))
                     ws.cell(row=current_row, column=5, value=match.get('time_tallinn_formatted', ''))
                     ws.cell(row=current_row, column=6, value=match.get('time_medellin_formatted', ''))
-                    ws.cell(row=current_row, column=7, value=match.get('matchId', ''))
+                    # Write match ID as integer so Excel never stores it as a float (379901.0)
+                    raw_mid = match.get('matchId', '')
+                    try:
+                        write_mid = int(str(raw_mid).split('.')[0]) if raw_mid != '' else ''
+                    except (ValueError, TypeError):
+                        write_mid = raw_mid
+                    ws.cell(row=current_row, column=7, value=write_mid)
                     ws.cell(row=current_row, column=8, value=match.get('game', ''))
                     ws.cell(row=current_row, column=9, value=match.get('livestream_status', 'N/A'))
                     ws.cell(row=current_row, column=10, value=match.get('coretools_check', ''))

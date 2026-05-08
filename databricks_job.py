@@ -35,24 +35,40 @@ def load_competition_whitelist(whitelist_file='competition_whitelist.json'):
 
 async def resolve_incomplete_whitelist(client, whitelist_config):
     """
-    For whitelist entries where only the ID is provided (no name/league_id),
-    fetch the competition info from the API and fill in the missing fields.
+    For whitelist entries that are missing any auto-filled fields (name, league_id,
+    start_date, end_date), fetch the competition info from the API and fill them in.
+    Runs for newly added competitions (missing name/league) AND for existing ones
+    that pre-date the date-filling feature.
     """
+    from datetime import datetime as _dt
     competitions = whitelist_config.get('active_competitions', [])
     updated = False
     for comp in competitions:
-        if comp.get('name') and comp.get('league_id'):
-            continue
+        needs_basic = not (comp.get('name') and comp.get('league_id'))
+        needs_dates = not (comp.get('start_date') and comp.get('end_date'))
+
+        if not needs_basic and not needs_dates:
+            continue  # already complete
+
         comp_id = comp['id']
         logger.info(f"Resolving competition info for ID {comp_id} from API...")
         info = await client.fetch_competition_info(comp_id)
         if info:
-            comp['name'] = info.get('name', f'Competition {comp_id}')
-            comp['league_id'] = info.get('league_id', 0)
-            comp['league_name'] = info.get('league_name', '')
-            from datetime import datetime
-            comp['added_date'] = datetime.now().strftime('%Y-%m-%d')
-            logger.info(f"  Resolved: {comp['name']} (League: {comp['league_name']})")
+            if needs_basic:
+                comp['name'] = info.get('name', f'Competition {comp_id}')
+                comp['league_id'] = info.get('league_id', 0)
+                comp['league_name'] = info.get('league_name', '')
+                comp.setdefault('added_date', _dt.now().strftime('%Y-%m-%d'))
+                logger.info(f"  Resolved: {comp['name']} (League: {comp['league_name']})")
+            if needs_dates:
+                if info.get('start_date'):
+                    comp['start_date'] = info['start_date']
+                if info.get('end_date'):
+                    comp['end_date'] = info['end_date']
+                if info.get('start_date') or info.get('end_date'):
+                    logger.info(
+                        f"  Dates: {info.get('start_date', 'N/A')} → {info.get('end_date', 'N/A')}"
+                    )
             updated = True
         else:
             logger.warning(f"  Could not resolve competition {comp_id} from API")

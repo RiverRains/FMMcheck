@@ -162,22 +162,54 @@ class GeniusClient:
         return result
 
     async def fetch_competition_info(self, competition_id):
-        """Fetch minimal match data for a competition to resolve its metadata."""
+        """
+        Fetch competition metadata: name, league, and start/end dates.
+        Basic info comes from a 1-match sample; dates come from the league's
+        competition list (the only endpoint that reliably exposes them).
+        """
         url = f"https://api.wh.geniussports.com/v1/football/competitions/{competition_id}/matches"
         params = {'limit': 1}
         try:
             data = await self._get(url, params=params)
-            if data and 'response' in data and 'data' in data['response']:
-                matches = data['response']['data']
-                if matches:
-                    m = matches[0]
-                    return {
-                        'id': competition_id,
-                        'name': m.get('competitionName', '') or m.get('competitionNameInternational', ''),
-                        'league_id': m.get('leagueId', 0),
-                        'league_name': m.get('leagueName', '') or m.get('leagueNameInternational', ''),
-                    }
-            return None
+            if not (data and 'response' in data and 'data' in data['response']):
+                return None
+            matches = data['response']['data']
+            if not matches:
+                return None
+            m = matches[0]
+            league_id = m.get('leagueId', 0)
+            result = {
+                'id': competition_id,
+                'name': m.get('competitionName', '') or m.get('competitionNameInternational', ''),
+                'league_id': league_id,
+                'league_name': m.get('leagueName', '') or m.get('leagueNameInternational', ''),
+            }
+
+            # Try to get start/end dates from the league's competition list
+            if league_id:
+                try:
+                    comp_list = await self.fetch_competitions_for_league(league_id)
+                    for c in comp_list:
+                        if c.get('competitionId') == competition_id:
+                            # Try several common field names for dates
+                            start = (
+                                c.get('startDate') or c.get('seasonStartDate') or
+                                c.get('dateFrom') or c.get('startTime')
+                            )
+                            end = (
+                                c.get('endDate') or c.get('seasonEndDate') or
+                                c.get('dateTo') or c.get('endTime')
+                            )
+                            # Trim to YYYY-MM-DD if datetime string
+                            if start:
+                                result['start_date'] = str(start)[:10]
+                            if end:
+                                result['end_date'] = str(end)[:10]
+                            break
+                except Exception as e:
+                    logger.debug(f"Could not fetch competition dates for {competition_id}: {e}")
+
+            return result
         except Exception as e:
             logger.error(f"Error fetching competition info for {competition_id}: {e}")
             return None
